@@ -66,6 +66,7 @@ glpictl_ai/
 - Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
 - Every feature gets a PR with detailed description
 - No direct pushes to main
+- Commits and PRs ALWAYS in English, NEVER use emojis
 
 ## Skills (Auto-load)
 
