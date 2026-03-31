@@ -1,95 +1,56 @@
-# glpictl-ai — Agent Instructions
+# Agent Instructions for glpictl-ai
 
 ## Project Overview
 
-**glpictl-ai** is a Python CLI tool for managing GLPI IT inventory through AI agents and humans. It wraps GLPI's REST API with a clean, discoverable command-line interface.
+glpictl-ai is a Go-based MCP server that wraps the GLPI REST API for IT inventory management by AI agents and humans.
 
-- **Language**: Python 3.12+
-- **CLI Framework**: Click
-- **HTTP Client**: httpx
-- **Data Validation**: Pydantic v2
-- **Terminal Output**: Rich (tables, colors)
-- **Config**: TOML (`~/.config/glpictl-ai/config.toml`) + env vars + CLI flags
-- **Package Manager**: uv
-- **Testing**: pytest
+## Stack
+
+- **Language**: Go 1.24+
+- **MCP SDK**: github.com/mark3labs/mcp-go
+- **HTTP Client**: net/http (stdlib) or github.com/go-resty/resty/v2
+- **Config**: github.com/BurntSushi/toml
+- **TUI (future)**: github.com/charmbracelet/bubbletea
 
 ## Architecture
 
 ```
-glpictl_ai/
-├── __init__.py
-├── cli.py              # Click CLI entrypoint + command groups
-├── config.py            # Config loader (TOML → env → flags priority)
-├── client.py            # GLPI REST API client (httpx, session management)
-├── models.py            # Pydantic models for GLPI itemtypes
-├── output.py            # Rich table/JSON/CSV formatters
-└── commands/            # Command group modules
-    ├── search.py        # search commands
-    ├── get.py           # get/detail commands
-    ├── create.py        # create commands
-    ├── update.py        # update commands
-    ├── delete.py        # delete commands
-    └── summary.py       # summary/alerts commands
+glpictl-ai/
+├── cmd/glpictl-ai/main.go      # Entry point (MCP server)
+├── internal/
+│   ├── glpi/client.go           # GLPI REST API client (session mgmt)
+│   ├── config/config.go         # Config loader (TOML)
+│   └── tools/                   # MCP tools (search, get, create, update, delete)
+└── skills/                      # SKILL.md files bundled for TUI installer
+    ├── glpi-inventory/SKILL.md
+    └── ...
 ```
 
 ## Rules
 
-### General
+- Standard Go project layout (`cmd/`, `internal/`, etc.)
+- All exported functions have GoDoc comments
+- Table-driven tests for all packages
+- Error wrapping with `fmt.Errorf("context: %w", err)`
+- Commits in English, conventional commits (feat, fix, refactor, test, chore)
+- Never add "Co-Authored-By" or AI attribution to commits
+- All work on feature branches (feat/, fix/), NEVER on main
+- Config at `~/.config/glpictl-ai/config.toml` (XDG-style)
 
-- Never add "Co-Authored-By" or AI attribution to commits. Use conventional commits only.
-- Never build or install after changes unless explicitly asked.
-- When asking a question, STOP and wait for response. Never continue or assume answers.
-- Never agree with user claims without verification. Say "dejame verificar" and check code first.
-- If user is wrong, explain WHY with evidence. If you were wrong, acknowledge with proof.
-- Always propose alternatives with tradeoffs when relevant.
+## GLPI API Notes
 
-### Code Style
+- Legacy API at `http://localhost/apirest.php` (NOT v2.2)
+- Auth: `user_token` + `app_token` headers on initSession
+- Session token replaces user_token after initSession
+- App-Token header required on ALL requests
+- `killSession` to clean up
 
-- Python 3.12+ with type hints everywhere
-- Pydantic v2 for ALL data models (request and response)
-- Use `httpx.AsyncClient` patterns even if CLI is sync (future-proof)
-- Click commands: lowercase with hyphens (`search-computer`), options with hyphens (`--user-token`)
-- Rich for ALL human output. JSON flag for machine output.
-- No print() — use `rich.console.Console`
-- Config follows priority: CLI flags > env vars > TOML file > defaults
+## Skills (Auto-load based on context)
 
-### Naming Conventions
-
-- GLPI itemtypes use PascalCase matching GLPI classes: `Computer`, `NetworkEquipment`, `Software`
-- CLI commands use kebab-case: `search-computer`, `network-equipment`
-- Python modules use snake_case: `network_equipment.py`
-- Config keys use snake_case: `user_token`, `app_token`
-
-### Git Workflow
-
-- Branches: `feat/feature-name`, `fix/bug-name`, `docs/topic`
-- Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
-- Every feature gets a PR with detailed description
-- No direct pushes to main
-- Commits and PRs ALWAYS in English, NEVER use emojis
-
-## Skills (Auto-load)
-
-Load these skills BEFORE writing code when context matches:
-
-| Context | Skill | When to load |
-|---------|-------|-------------|
-| Finishing a feature, committing, pushing, PR | `feature-workflow` | After completing any feature |
-| Writing Python code for this project | `python-project` | Before writing any Python |
-| Working with GLPI REST API | `glpi-api` | Before implementing API calls |
-| Creating SKILL.md files | `skill-creator` | Before creating GLPI skill docs |
-
-## GLPI API Context
-
-- Base URL pattern: `{glpi_url}/apirest.php/{endpoint}`
-- Auth: Session-based. Init session → get token → use token → kill session
-- All requests need: `Content-Type: application/json`, `Session-Token`, optional `App-Token`
-- Itemtypes: Computer, Printer, Monitor, NetworkEquipment, Peripheral, Phone, Software, Rack, Enclosure, Cable, etc.
-- Search engine: `/search/{itemtype}/` with criteria array
-- Pagination: `range` header (0-49 default), returns 206 Partial Content
-
-## Language
-
-- Spanish input → Rioplatense Spanish (voseo)
-- English input → same warm energy
-- Be direct, passionate, but caring about quality
+| Context | Skill to Load |
+|---------|---------------|
+| Writing Go code | `golang-pro` |
+| Building MCP server | `go-mcp-server-generator` |
+| Writing Go tests | `golang-pro` (testing.md reference) |
+| Building TUI | `bubbletea` (future) |
+| Creating skills | `skill-creator` |

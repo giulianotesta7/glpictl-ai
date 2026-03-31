@@ -1,40 +1,35 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-dist/
-build/
-.eggs/
-*.egg
+# Binaries
+/glpictl-ai
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# Virtual environments
-.venv/
-venv/
-env/
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+coverage.html
+
+# Go workspace
+go.work.sum
+
+# Dependency directories
+vendor/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
-
-# Config (contains tokens)
-config.toml
-*.env
-.env.*
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# uv
-uv.lock
+# Config (local)
+config.toml
+.opencode
