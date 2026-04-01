@@ -12,6 +12,7 @@ import (
 
 	"github.com/giulianotesta7/glpictl-ai/internal/config"
 	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
+	"github.com/giulianotesta7/glpictl-ai/internal/tools"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -66,6 +67,58 @@ func main() {
 		mcp.WithDescription("Test GLPI connection and return session status"),
 	)
 	s.AddTool(pingMCPTool, createPingHandler(client))
+
+	// Register glpi_get tool
+	getTool := mcp.NewTool("glpi_get",
+		mcp.WithDescription("Get a single GLPI item by type and ID"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Item ID")),
+		mcp.WithArray("fields", mcp.Description("Fields to return (empty = all)"), mcp.Items(map[string]any{"type": "string"})),
+	)
+	s.AddTool(getTool, createGetHandler(client))
+
+	// Register glpi_search tool
+	searchTool := mcp.NewTool("glpi_search",
+		mcp.WithDescription("Search GLPI items with criteria and optional field selection"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithArray("criteria", mcp.Required(), mcp.Description("Search criteria array"), mcp.Items(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"field":      map[string]any{"type": "number", "description": "Field ID to search on"},
+				"searchtype": map[string]any{"type": "string", "description": "Search type (contains, equals, etc.)"},
+				"value":      map[string]any{"type": "string", "description": "Search value"},
+				"link":       map[string]any{"type": "string", "description": "Link operator (AND, OR)"},
+			},
+		})),
+		mcp.WithArray("fields", mcp.Description("Fields to return"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithObject("range", mcp.Description("Result range (start-end)")),
+	)
+	s.AddTool(searchTool, createSearchHandler(client))
+
+	// Register glpi_create tool
+	createTool := mcp.NewTool("glpi_create",
+		mcp.WithDescription("Create a new GLPI item"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithObject("data", mcp.Required(), mcp.Description("Item data to create")),
+	)
+	s.AddTool(createTool, createCreateHandler(client))
+
+	// Register glpi_update tool
+	updateTool := mcp.NewTool("glpi_update",
+		mcp.WithDescription("Update an existing GLPI item"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Item ID")),
+		mcp.WithObject("data", mcp.Required(), mcp.Description("Fields to update")),
+	)
+	s.AddTool(updateTool, createUpdateHandler(client))
+
+	// Register glpi_delete tool
+	deleteTool := mcp.NewTool("glpi_delete",
+		mcp.WithDescription("Delete a GLPI item by type and ID"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Item ID")),
+	)
+	s.AddTool(deleteTool, createDeleteHandler(client))
 
 	go func() {
 		sigChan := make(chan os.Signal, 1)
@@ -166,5 +219,216 @@ func createPingHandler(client *glpi.Client) server.ToolHandlerFunc {
 			redactedToken, client.GLPIURL(), version)
 
 		return mcp.NewToolResultText(result), nil
+	}
+}
+
+// createGetHandler creates the MCP tool handler for the glpi_get command.
+func createGetHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		id, err := request.RequireInt("id")
+		if err != nil {
+			return mcp.NewToolResultError("id is required and must be a number"), nil
+		}
+
+		// Extract optional fields
+		var fields []string
+		if fieldsVal := request.GetStringSlice("fields", nil); fieldsVal != nil {
+			fields = fieldsVal
+		}
+
+		tool, err := tools.NewGetTool(client)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create get tool: %v", err)), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType, id, fields)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Get item failed: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Item retrieved successfully.\nID: %d\nName: %s\nData: %v",
+			result.ID, result.Name, result.Data)), nil
+	}
+}
+
+// createSearchHandler creates the MCP tool handler for the glpi_search command.
+func createSearchHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		// Get raw arguments to extract criteria
+		rawArgs := request.GetRawArguments()
+		argsMap, ok := rawArgs.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("invalid arguments format"), nil
+		}
+
+		var criteria []tools.SearchCriterion
+		if criteriaVal, ok := argsMap["criteria"].([]interface{}); ok {
+			for _, c := range criteriaVal {
+				if cmap, ok := c.(map[string]interface{}); ok {
+					criterion := tools.SearchCriterion{}
+					if f, ok := cmap["field"].(float64); ok {
+						criterion.Field = int(f)
+					}
+					if st, ok := cmap["searchtype"].(string); ok {
+						criterion.SearchType = st
+					}
+					if v, ok := cmap["value"].(string); ok {
+						criterion.Value = v
+					}
+					if l, ok := cmap["link"].(string); ok {
+						criterion.Link = l
+					}
+					criteria = append(criteria, criterion)
+				}
+			}
+		}
+
+		if len(criteria) == 0 {
+			return mcp.NewToolResultError("criteria is required and must be a non-empty array"), nil
+		}
+
+		// Extract optional fields
+		var fields []string
+		if fieldsVal := request.GetStringSlice("fields", nil); fieldsVal != nil {
+			fields = fieldsVal
+		}
+
+		// Extract optional range
+		var searchRange *tools.SearchRange
+		if rangeVal, ok := argsMap["range"].(map[string]interface{}); ok {
+			searchRange = &tools.SearchRange{}
+			if start, ok := rangeVal["start"].(float64); ok {
+				searchRange.Start = int(start)
+			}
+			if end, ok := rangeVal["end"].(float64); ok {
+				searchRange.End = int(end)
+			}
+		}
+
+		tool, err := tools.NewSearchTool(client)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create search tool: %v", err)), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType, criteria, fields, searchRange)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Search failed: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Search completed.\nTotal count: %d\nResults: %d items",
+			result.TotalCount, len(result.Data))), nil
+	}
+}
+
+// createCreateHandler creates the MCP tool handler for the glpi_create command.
+func createCreateHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		// Get raw arguments to extract data
+		rawArgs := request.GetRawArguments()
+		argsMap, ok := rawArgs.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("invalid arguments format"), nil
+		}
+
+		data, ok := argsMap["data"].(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("data is required and must be an object"), nil
+		}
+
+		tool, err := tools.NewCreateTool(client)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create create tool: %v", err)), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType, data)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Create item failed: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Item created successfully.\nID: %d\nMessage: %s",
+			result.ID, result.Message)), nil
+	}
+}
+
+// createUpdateHandler creates the MCP tool handler for the glpi_update command.
+func createUpdateHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		id, err := request.RequireInt("id")
+		if err != nil {
+			return mcp.NewToolResultError("id is required and must be a number"), nil
+		}
+
+		// Get raw arguments to extract data
+		rawArgs := request.GetRawArguments()
+		argsMap, ok := rawArgs.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("invalid arguments format"), nil
+		}
+
+		data, ok := argsMap["data"].(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("data is required and must be an object"), nil
+		}
+
+		tool, err := tools.NewUpdateTool(client)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create update tool: %v", err)), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType, id, data)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Update item failed: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Item updated successfully.\nID: %d\nMessage: %s",
+			result.ID, result.Message)), nil
+	}
+}
+
+// createDeleteHandler creates the MCP tool handler for the glpi_delete command.
+func createDeleteHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		id, err := request.RequireInt("id")
+		if err != nil {
+			return mcp.NewToolResultError("id is required and must be a number"), nil
+		}
+
+		tool, err := tools.NewDeleteTool(client)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create delete tool: %v", err)), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType, id)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Delete item failed: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Item deleted successfully.\nID: %d\nMessage: %s",
+			result.ID, result.Message)), nil
 	}
 }

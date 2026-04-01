@@ -16,6 +16,8 @@ type ToolClient interface {
 	GetGLPIVersion(ctx context.Context) (string, error)
 	Get(ctx context.Context, endpoint string, result interface{}) error
 	Post(ctx context.Context, endpoint string, body interface{}, result interface{}) error
+	Put(ctx context.Context, endpoint string, body interface{}, result interface{}) error
+	Delete(ctx context.Context, endpoint string, result interface{}) error
 }
 
 // PingResult represents the result of a ping operation.

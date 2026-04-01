@@ -195,6 +195,18 @@ func (c *Client) Post(ctx context.Context, endpoint string, body interface{}, re
 	return c.doRequest(ctx, "POST", endpoint, body, result)
 }
 
+// Put performs a PUT request to the GLPI API.
+// It lazily initializes the session if needed and handles auto-reconnect on 401.
+func (c *Client) Put(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+	return c.doRequest(ctx, "PUT", endpoint, body, result)
+}
+
+// Delete performs a DELETE request to the GLPI API.
+// It lazily initializes the session if needed and handles auto-reconnect on 401.
+func (c *Client) Delete(ctx context.Context, endpoint string, result interface{}) error {
+	return c.doRequest(ctx, "DELETE", endpoint, nil, result)
+}
+
 // doRequest performs an HTTP request with session management.
 func (c *Client) doRequest(ctx context.Context, method, endpoint string, requestBody, result interface{}) error {
 	// Lazy initialization

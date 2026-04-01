@@ -18,6 +18,10 @@ type MockClient struct {
 	GLPIURLResult      string
 	GLPIVersionResult  string
 	GLPIVersionError   error
+	GetFunc            func(ctx context.Context, endpoint string, result interface{}) error
+	PostFunc           func(ctx context.Context, endpoint string, body interface{}, result interface{}) error
+	PutFunc            func(ctx context.Context, endpoint string, body interface{}, result interface{}) error
+	DeleteFunc         func(ctx context.Context, endpoint string, result interface{}) error
 }
 
 func (m *MockClient) InitSession(ctx context.Context) error {
@@ -53,10 +57,30 @@ func (m *MockClient) GetGLPIVersion(ctx context.Context) (string, error) {
 }
 
 func (m *MockClient) Get(ctx context.Context, endpoint string, result interface{}) error {
+	if m.GetFunc != nil {
+		return m.GetFunc(ctx, endpoint, result)
+	}
 	return nil
 }
 
 func (m *MockClient) Post(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+	if m.PostFunc != nil {
+		return m.PostFunc(ctx, endpoint, body, result)
+	}
+	return nil
+}
+
+func (m *MockClient) Put(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+	if m.PutFunc != nil {
+		return m.PutFunc(ctx, endpoint, body, result)
+	}
+	return nil
+}
+
+func (m *MockClient) Delete(ctx context.Context, endpoint string, result interface{}) error {
+	if m.DeleteFunc != nil {
+		return m.DeleteFunc(ctx, endpoint, result)
+	}
 	return nil
 }
 
