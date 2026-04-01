@@ -6,7 +6,7 @@ glpictl-ai is a Go-based MCP server that wraps the GLPI REST API for IT inventor
 
 ## Stack
 
-- **Language**: Go 1.24+
+- **Language**: Go 1.23+
 - **MCP SDK**: github.com/mark3labs/mcp-go
 - **HTTP Client**: net/http (stdlib) or github.com/go-resty/resty/v2
 - **Config**: github.com/BurntSushi/toml
