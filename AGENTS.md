@@ -23,7 +23,11 @@ glpictl-ai/
 │   └── tools/                   # MCP tools (search, get, create, update, delete)
 └── skills/                      # SKILL.md files bundled for TUI installer
     ├── glpi-inventory/SKILL.md
-    └── ...
+    ├── glpi-software/SKILL.md
+    ├── glpi-infrastructure/SKILL.md
+    ├── glpi-financial/SKILL.md
+    ├── glpi-relations/SKILL.md
+    └── glpi-admin/SKILL.md
 ```
 
 ## Rules
@@ -54,3 +58,9 @@ glpictl-ai/
 | Writing Go tests | `golang-pro` (testing.md reference) |
 | Building TUI | `bubbletea` (future) |
 | Creating skills | `skill-creator` |
+| GLPI inventory CRUD (search, get, create, update, delete) | `glpi-inventory` |
+| GLPI software, licenses, compliance | `glpi-software` |
+| GLPI network equipment, ports, racks, VLANs | `glpi-infrastructure` |
+| GLPI contracts, costs, budgets, depreciation | `glpi-financial` |
+| GLPI users, groups, entities, assignments | `glpi-relations` |
+| GLPI dashboards, alerts, certificates, domains | `glpi-admin` |
