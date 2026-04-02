@@ -47,6 +47,7 @@ Use `glpi_get` with `include` to request related details (software, ports, contr
 | `glpi_bulk_update` | Update multiple items at once |
 | `glpi_delete` | Delete an item by ID |
 | `glpi_summary` | Dashboard with item counts by type |
+| `glpi_user_assets` | Get all assets assigned to a specific user |
 
 ## Commands
 
@@ -68,4 +69,10 @@ glpi_bulk_update(items=[{"itemtype":"Computer","name":"PC-001","data":{"state_id
 
 # Inventory summary
 glpi_summary()
+
+# Search users
+glpi_search(itemtype="User", criteria=[{"field_name":"User.name","searchtype":"contains","value":"john"}])
+
+# Get assets assigned to a user
+glpi_user_assets(user_id=42)
 ```

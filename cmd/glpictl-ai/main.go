@@ -99,6 +99,14 @@ func main() {
 	listFieldsTool := newListFieldsMCPTool()
 	s.AddTool(listFieldsTool, createListFieldsHandler(client))
 
+	// Register glpi_user_assets tool
+	userAssetsTool := mcp.NewTool("glpi_user_assets",
+		mcp.WithDescription("Get all assets assigned to a specific user"),
+		mcp.WithNumber("user_id", mcp.Required(), mcp.Description("User ID")),
+		mcp.WithArray("itemtypes", mcp.Description("Itemtypes to search (default: all inventory types)"), mcp.Items(map[string]any{"type": "string"})),
+	)
+	s.AddTool(userAssetsTool, createUserAssetsHandler(client))
+
 	// Register glpi_create tool
 	createTool := mcp.NewTool("glpi_create",
 		mcp.WithDescription("Create a new GLPI item"),
@@ -662,5 +670,34 @@ func createSummaryHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("Inventory summary.\nTotal items: %d\nItemtypes queried: %d",
 			result.Total, len(result.Itemtypes))), nil
+	}
+}
+
+// createUserAssetsHandler creates the MCP tool handler for the glpi_user_assets command.
+func createUserAssetsHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		userID, err := request.RequireInt("user_id")
+		if err != nil {
+			return mcp.NewToolResultError("user_id is required and must be a number"), nil
+		}
+
+		var itemtypes []string
+		if itVal := request.GetStringSlice("itemtypes", nil); itVal != nil {
+			itemtypes = itVal
+		}
+
+		tool, err := tools.NewUserAssetsTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create user assets tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, userID, itemtypes)
+		if err != nil {
+			wrappedErr := fmt.Errorf("user assets: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("User %d has %d assigned assets.", userID, result.Count)), nil
 	}
 }
