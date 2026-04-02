@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/giulianotesta7/glpictl-ai/internal/config"
 )
@@ -740,4 +741,241 @@ func TestClient_GetGLPIVersion(t *testing.T) {
 			t.Errorf("version = %q, want %q", version, "unknown")
 		}
 	})
+}
+
+func TestClient_GetSearchOptions(t *testing.T) {
+	t.Run("fetches and normalizes search options on cache miss", func(t *testing.T) {
+		listCalls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/initSession") {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"session_token": "test-session"})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/listSearchOptions/Computer") {
+				listCalls++
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"1":{"uid":"Computer.name","name":"Name","field":"name","datatype":"string","table":"glpi_computers"}}`))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			GLPI: config.GLPIConfig{
+				URL:       server.URL + "/apirest.php",
+				AppToken:  "test-app-token",
+				UserToken: "test-user-token",
+			},
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		result, err := client.GetSearchOptions(context.Background(), "Computer")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.ItemType != "Computer" {
+			t.Errorf("ItemType = %q, want %q", result.ItemType, "Computer")
+		}
+		if result.Cached {
+			t.Error("Cached should be false on first call")
+		}
+		if len(result.Fields) != 1 {
+			t.Fatalf("len(Fields) = %d, want %d", len(result.Fields), 1)
+		}
+		if result.Fields[0].ID != 1 {
+			t.Errorf("ID = %d, want %d", result.Fields[0].ID, 1)
+		}
+		if listCalls != 1 {
+			t.Errorf("listSearchOptions calls = %d, want %d", listCalls, 1)
+		}
+	})
+
+	t.Run("returns cached search options on second call", func(t *testing.T) {
+		listCalls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/initSession") {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"session_token": "test-session"})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/listSearchOptions/Computer") {
+				listCalls++
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"1":{"uid":"Computer.name","name":"Name","field":"name"}}`))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{GLPI: config.GLPIConfig{URL: server.URL + "/apirest.php", AppToken: "test-app-token", UserToken: "test-user-token"}}
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		first, err := client.GetSearchOptions(context.Background(), "Computer")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		second, err := client.GetSearchOptions(context.Background(), "Computer")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if first.Cached {
+			t.Error("first response should not be cached")
+		}
+		if !second.Cached {
+			t.Error("second response should be cached")
+		}
+		if listCalls != 1 {
+			t.Errorf("listSearchOptions calls = %d, want %d", listCalls, 1)
+		}
+	})
+
+	t.Run("refetches when TTL is expired", func(t *testing.T) {
+		listCalls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/initSession") {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"session_token": "test-session"})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/listSearchOptions/Computer") {
+				listCalls++
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"1":{"uid":"Computer.name","name":"Name","field":"name"}}`))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{GLPI: config.GLPIConfig{URL: server.URL + "/apirest.php", AppToken: "test-app-token", UserToken: "test-user-token"}}
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		client.searchOptionsTTL = 1 * time.Millisecond
+
+		_, err = client.GetSearchOptions(context.Background(), "Computer")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		time.Sleep(5 * time.Millisecond)
+
+		fresh, err := client.GetSearchOptions(context.Background(), "Computer")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if fresh.Cached {
+			t.Error("response should not be cached after TTL expiry")
+		}
+		if listCalls != 2 {
+			t.Errorf("listSearchOptions calls = %d, want %d", listCalls, 2)
+		}
+	})
+
+	t.Run("propagates invalid itemtype error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/initSession") {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"session_token": "test-session"})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/listSearchOptions/InvalidItem") {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"message":"itemtype not found"}`))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{GLPI: config.GLPIConfig{URL: server.URL + "/apirest.php", AppToken: "test-app-token", UserToken: "test-user-token"}}
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		_, err = client.GetSearchOptions(context.Background(), "InvalidItem")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "get search options") {
+			t.Fatalf("error = %q, want wrapped context", err.Error())
+		}
+	})
+}
+
+func TestClient_KillSession_ClearsSearchOptionsCache(t *testing.T) {
+	listCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/initSession") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"session_token": "test-session"})
+			return
+		}
+
+		if strings.Contains(r.URL.Path, "/listSearchOptions/Computer") {
+			listCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"1":{"uid":"Computer.name","name":"Name","field":"name"}}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/killSession") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{GLPI: config.GLPIConfig{URL: server.URL + "/apirest.php", AppToken: "test-app-token", UserToken: "test-user-token"}}
+	client, err := NewClient(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = client.GetSearchOptions(context.Background(), "Computer")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := client.KillSession(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	second, err := client.GetSearchOptions(context.Background(), "Computer")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if second.Cached {
+		t.Error("response after kill session should not be cached")
+	}
+	if listCalls != 2 {
+		t.Errorf("listSearchOptions calls = %d, want %d", listCalls, 2)
+	}
 }

@@ -4,14 +4,19 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
+	"strings"
+
+	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
 )
 
 // SearchCriterion represents a single search criterion.
 type SearchCriterion struct {
-	Field      int    `json:"field"`      // Field ID to search on
-	SearchType string `json:"searchtype"` // Search type: contains, equals, notcontains, etc.
-	Value      string `json:"value"`      // Search value
-	Link       string `json:"link"`       // Link operator: AND, OR (empty for first criterion)
+	Field      int    `json:"field,omitempty"`      // Field ID to search on
+	FieldName  string `json:"field_name,omitempty"` // Human-friendly field name or uid
+	SearchType string `json:"searchtype"`           // Search type: contains, equals, notcontains, etc.
+	Value      string `json:"value"`                // Search value
+	Link       string `json:"link,omitempty"`       // Link operator: AND, OR (empty for first criterion)
 }
 
 // SearchRange represents the range of results to return.
@@ -83,11 +88,16 @@ func (s *SearchTool) Execute(ctx context.Context, itemtype string, criteria []Se
 		return nil, fmt.Errorf("at least one search criterion is required")
 	}
 
+	resolvedCriteria, err := s.resolveCriteria(ctx, itemtype, criteria)
+	if err != nil {
+		return nil, fmt.Errorf("search items: %w", err)
+	}
+
 	// Build query parameters
 	params := url.Values{}
 
 	// Add criteria
-	for i, c := range criteria {
+	for i, c := range resolvedCriteria {
 		prefix := fmt.Sprintf("criteria[%d]", i)
 		params.Add(prefix+"[field]", fmt.Sprintf("%d", c.Field))
 		params.Add(prefix+"[searchtype]", c.SearchType)
@@ -111,7 +121,7 @@ func (s *SearchTool) Execute(ctx context.Context, itemtype string, criteria []Se
 	endpoint := fmt.Sprintf("/search/%s?%s", itemtype, params.Encode())
 
 	var result map[string]interface{}
-	err := s.client.Get(ctx, endpoint, &result)
+	err = s.client.Get(ctx, endpoint, &result)
 	if err != nil {
 		return nil, fmt.Errorf("search items: %w", err)
 	}
@@ -159,6 +169,101 @@ func (s *SearchTool) Execute(ctx context.Context, itemtype string, criteria []Se
 	}
 
 	return searchResult, nil
+}
+
+func (s *SearchTool) resolveCriteria(ctx context.Context, itemtype string, criteria []SearchCriterion) ([]SearchCriterion, error) {
+	resolved := make([]SearchCriterion, len(criteria))
+	copy(resolved, criteria)
+
+	needsResolution := false
+	for _, criterion := range resolved {
+		if criterion.Field <= 0 && criterion.FieldName != "" {
+			needsResolution = true
+			break
+		}
+	}
+
+	if !needsResolution {
+		return resolved, nil
+	}
+
+	searchOptions, err := s.client.GetSearchOptions(ctx, itemtype)
+	if err != nil {
+		return nil, fmt.Errorf("resolve field_name for %s: %w", itemtype, err)
+	}
+
+	for i, criterion := range resolved {
+		if criterion.Field > 0 {
+			continue
+		}
+
+		if criterion.FieldName == "" {
+			return nil, fmt.Errorf("criterion %d: field or field_name is required", i)
+		}
+
+		fieldID, resolveErr := resolveFieldName(searchOptions.Fields, criterion.FieldName)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("criterion %d: %w", i, resolveErr)
+		}
+
+		resolved[i].Field = fieldID
+	}
+
+	return resolved, nil
+}
+
+func resolveFieldName(options []glpi.SearchOption, fieldName string) (int, error) {
+	uidMatches := collectMatches(options, func(option glpi.SearchOption) bool {
+		return option.UID == fieldName
+	})
+	if len(uidMatches) == 1 {
+		return uidMatches[0], nil
+	}
+	if len(uidMatches) > 1 {
+		return 0, newAmbiguousFieldNameError(fieldName, uidMatches)
+	}
+
+	technicalMatches := collectMatches(options, func(option glpi.SearchOption) bool {
+		return option.Field == fieldName || option.Name == fieldName
+	})
+	if len(technicalMatches) == 1 {
+		return technicalMatches[0], nil
+	}
+	if len(technicalMatches) > 1 {
+		return 0, newAmbiguousFieldNameError(fieldName, technicalMatches)
+	}
+
+	displayMatches := collectMatches(options, func(option glpi.SearchOption) bool {
+		return option.DisplayName == fieldName
+	})
+	if len(displayMatches) == 1 {
+		return displayMatches[0], nil
+	}
+	if len(displayMatches) > 1 {
+		return 0, newAmbiguousFieldNameError(fieldName, displayMatches)
+	}
+
+	return 0, fmt.Errorf("field_name %q could not be mapped to a numeric field id", fieldName)
+}
+
+func collectMatches(options []glpi.SearchOption, matchFn func(glpi.SearchOption) bool) []int {
+	ids := make([]int, 0)
+	for _, option := range options {
+		if matchFn(option) {
+			ids = append(ids, option.ID)
+		}
+	}
+	sort.Ints(ids)
+	return ids
+}
+
+func newAmbiguousFieldNameError(fieldName string, ids []int) error {
+	values := make([]string, len(ids))
+	for i, id := range ids {
+		values[i] = fmt.Sprintf("%d", id)
+	}
+
+	return fmt.Errorf("field_name %q is ambiguous (matched ids: %s)", fieldName, strings.Join(values, ","))
 }
 
 // Ensure SearchTool implements the Tool interface

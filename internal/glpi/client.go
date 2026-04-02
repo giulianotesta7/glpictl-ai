@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,6 +42,32 @@ type Client struct {
 
 	// Logger for debug output
 	logger *slog.Logger
+
+	searchOptionsTTL   time.Duration
+	searchOptionsCache map[string]cachedSearchOptions
+}
+
+// SearchOption represents a normalized GLPI search option.
+type SearchOption struct {
+	ID          int    `json:"id"`
+	UID         string `json:"uid,omitempty"`
+	Name        string `json:"name,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	DataType    string `json:"datatype,omitempty"`
+	Table       string `json:"table,omitempty"`
+	Field       string `json:"field,omitempty"`
+}
+
+// SearchOptionsResult represents listSearchOptions output with cache metadata.
+type SearchOptionsResult struct {
+	ItemType string         `json:"itemtype"`
+	Fields   []SearchOption `json:"fields"`
+	Cached   bool           `json:"cached"`
+}
+
+type cachedSearchOptions struct {
+	fields    []SearchOption
+	fetchedAt time.Time
 }
 
 // NewClient creates a new GLPI client.
@@ -83,13 +111,15 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}
 
 	return &Client{
-		cfg:         cfg,
-		httpClient:  httpClient,
-		baseURL:     strings.TrimSuffix(cfg.GLPI.URL, "/"),
-		appToken:    cfg.GLPI.AppToken,
-		userToken:   cfg.GLPI.UserToken,
-		insecureSSL: cfg.GLPI.InsecureSSL,
-		logger:      logger,
+		cfg:                cfg,
+		httpClient:         httpClient,
+		baseURL:            strings.TrimSuffix(cfg.GLPI.URL, "/"),
+		appToken:           cfg.GLPI.AppToken,
+		userToken:          cfg.GLPI.UserToken,
+		insecureSSL:        cfg.GLPI.InsecureSSL,
+		logger:             logger,
+		searchOptionsTTL:   time.Hour,
+		searchOptionsCache: make(map[string]cachedSearchOptions),
 	}, nil
 }
 
@@ -120,9 +150,9 @@ func (c *Client) InitSession(ctx context.Context) error {
 	}
 	c.mu.Unlock()
 
-	err := c.doInitSession(ctx, false)
+	err := c.doInitSession(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("init session: %w", err)
 	}
 
 	c.mu.Lock()
@@ -133,7 +163,7 @@ func (c *Client) InitSession(ctx context.Context) error {
 }
 
 // doInitSession performs the actual session initialization.
-func (c *Client) doInitSession(ctx context.Context, retry bool) error {
+func (c *Client) doInitSession(ctx context.Context) error {
 	// Build initSession URL
 	initURL := c.baseURL + "/initSession"
 
@@ -214,7 +244,7 @@ func (c *Client) doRequest(ctx context.Context, method, endpoint string, request
 	if !c.initialized {
 		c.mu.Unlock()
 		if err := c.InitSession(ctx); err != nil {
-			return err
+			return fmt.Errorf("initialize session for %s %s: %w", method, endpoint, err)
 		}
 		c.mu.Lock()
 	}
@@ -234,23 +264,27 @@ func (c *Client) doRequest(ctx context.Context, method, endpoint string, request
 			// Clear session and reconnect
 			c.mu.Lock()
 			c.sessionToken = ""
+			c.clearSearchOptionsCacheLocked()
 			c.mu.Unlock()
 
-			if err := c.doInitSession(ctx, true); err != nil {
-				return err
+			if err := c.doInitSession(ctx); err != nil {
+				return fmt.Errorf("reconnect session for %s %s: %w", method, endpoint, err)
 			}
 
 			// Retry the request
 			retryErr := c.doHTTPRequest(ctx, method, endpoint, requestBody, result)
 			// Reset counter after reconnect attempt regardless of outcome
 			c.reconnectCount.Store(0)
-			return retryErr
+			if retryErr != nil {
+				return fmt.Errorf("retry request %s %s: %w", method, endpoint, retryErr)
+			}
+			return nil
 		}
 		// Another goroutine already reconnected, just return the error
-		return NewSessionExpiredError()
+		return fmt.Errorf("request %s %s: %w", method, endpoint, NewSessionExpiredError())
 	}
 
-	return err
+	return fmt.Errorf("request %s %s: %w", method, endpoint, err)
 }
 
 // doHTTPRequest performs the actual HTTP request without session management.
@@ -390,12 +424,113 @@ func (c *Client) KillSession(ctx context.Context) error {
 	c.mu.Lock()
 	c.sessionToken = ""
 	c.initialized = false
+	c.clearSearchOptionsCacheLocked()
 	c.mu.Unlock()
 
 	// Reset reconnect counter for next session
 	c.reconnectCount.Store(0)
 
 	return nil
+}
+
+// GetSearchOptions returns normalized searchable fields for the given itemtype.
+func (c *Client) GetSearchOptions(ctx context.Context, itemtype string) (*SearchOptionsResult, error) {
+	if itemtype == "" {
+		return nil, fmt.Errorf("itemtype is required")
+	}
+
+	cacheKey := strings.ToLower(itemtype)
+
+	c.mu.Lock()
+	if cached, ok := c.searchOptionsCache[cacheKey]; ok && time.Since(cached.fetchedAt) < c.searchOptionsTTL {
+		fields := cloneSearchOptions(cached.fields)
+		c.mu.Unlock()
+		return &SearchOptionsResult{ItemType: itemtype, Fields: fields, Cached: true}, nil
+	}
+	c.mu.Unlock()
+
+	var raw map[string]interface{}
+	endpoint := fmt.Sprintf("/listSearchOptions/%s", itemtype)
+	if err := c.Get(ctx, endpoint, &raw); err != nil {
+		return nil, fmt.Errorf("get search options for %s: %w", itemtype, err)
+	}
+
+	fields := normalizeSearchOptions(raw)
+
+	c.mu.Lock()
+	c.searchOptionsCache[cacheKey] = cachedSearchOptions{
+		fields:    cloneSearchOptions(fields),
+		fetchedAt: time.Now(),
+	}
+	c.mu.Unlock()
+
+	return &SearchOptionsResult{ItemType: itemtype, Fields: fields, Cached: false}, nil
+}
+
+func normalizeSearchOptions(raw map[string]interface{}) []SearchOption {
+	fields := make([]SearchOption, 0, len(raw))
+
+	for key, value := range raw {
+		id, err := strconv.Atoi(key)
+		if err != nil {
+			continue
+		}
+
+		entry, ok := value.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name := getStringValue(entry, "name")
+		displayName := name
+		if displayName == "" {
+			displayName = getStringValue(entry, "field")
+		}
+
+		fields = append(fields, SearchOption{
+			ID:          id,
+			UID:         getStringValue(entry, "uid"),
+			Name:        name,
+			DisplayName: displayName,
+			DataType:    getStringValue(entry, "datatype"),
+			Table:       getStringValue(entry, "table"),
+			Field:       getStringValue(entry, "field"),
+		})
+	}
+
+	sort.Slice(fields, func(i, j int) bool {
+		return fields[i].ID < fields[j].ID
+	})
+
+	return fields
+}
+
+func getStringValue(entry map[string]interface{}, key string) string {
+	v, ok := entry[key]
+	if !ok {
+		return ""
+	}
+	str, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return str
+}
+
+func cloneSearchOptions(src []SearchOption) []SearchOption {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]SearchOption, len(src))
+	copy(dst, src)
+	return dst
+}
+
+func (c *Client) clearSearchOptionsCacheLocked() {
+	if len(c.searchOptionsCache) == 0 {
+		return
+	}
+	c.searchOptionsCache = make(map[string]cachedSearchOptions)
 }
 
 // GetGLPIVersion fetches the GLPI version from the API.

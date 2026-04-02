@@ -14,6 +14,7 @@ type ToolClient interface {
 	SessionToken() string
 	GLPIURL() string
 	GetGLPIVersion(ctx context.Context) (string, error)
+	GetSearchOptions(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error)
 	Get(ctx context.Context, endpoint string, result interface{}) error
 	Post(ctx context.Context, endpoint string, body interface{}, result interface{}) error
 	Put(ctx context.Context, endpoint string, body interface{}, result interface{}) error
@@ -51,7 +52,7 @@ func (p *PingTool) Ping(ctx context.Context) (*PingResult, error) {
 		return &PingResult{
 			Status: "error",
 			Error:  err.Error(),
-		}, err
+		}, fmt.Errorf("ping: init session: %w", err)
 	}
 
 	sessionToken := p.client.SessionToken()
@@ -63,8 +64,10 @@ func (p *PingTool) Ping(ctx context.Context) (*PingResult, error) {
 	}
 
 	// Get GLPI version
-	glpiVersion, _ := p.client.GetGLPIVersion(ctx)
-	// If GetGLPIVersion fails, we still return success but with "unknown" version
+	glpiVersion, versionErr := p.client.GetGLPIVersion(ctx)
+	if versionErr != nil {
+		glpiVersion = "unknown"
+	}
 
 	return &PingResult{
 		Status:       "connected",

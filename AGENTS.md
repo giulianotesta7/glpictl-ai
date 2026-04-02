@@ -30,7 +30,7 @@ glpictl-ai/
 
 - Standard Go project layout (`cmd/`, `internal/`, etc.)
 - All exported functions have GoDoc comments
-- Table-driven tests for all packages
+- Table-driven tests are encouraged when they improve clarity for behavior-heavy or multi-scenario coverage
 - Error wrapping with `fmt.Errorf("context: %w", err)`
 - Commits in English, conventional commits (feat, fix, refactor, test, chore)
 - Never add "Co-Authored-By" or AI attribution to commits

@@ -8,11 +8,12 @@ import (
 	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
 )
 
-// MockClient implements glpi.Clienter interface for testing
+// MockClient implements the ToolClient interface for testing.
 type MockClient struct {
 	InitSessionFunc    func(ctx context.Context) error
 	killSessionFunc    func(ctx context.Context) error
 	sessionTokenFunc   func() string
+	searchOptionsFunc  func(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error)
 	SessionTokenResult string
 	InitSessionError   error
 	GLPIURLResult      string
@@ -83,6 +84,16 @@ func (m *MockClient) Delete(ctx context.Context, endpoint string, result interfa
 	}
 	return nil
 }
+
+func (m *MockClient) GetSearchOptions(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error) {
+	if m.searchOptionsFunc != nil {
+		return m.searchOptionsFunc(ctx, itemtype)
+	}
+	return &glpi.SearchOptionsResult{}, nil
+}
+
+// Verify the ToolClient interface is satisfied.
+var _ ToolClient = (*MockClient)(nil)
 
 func TestPing(t *testing.T) {
 	t.Run("returns GLPI version and connection status on success", func(t *testing.T) {

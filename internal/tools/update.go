@@ -72,19 +72,25 @@ func (u *UpdateTool) Execute(ctx context.Context, itemtype string, id int, data 
 		"input": data,
 	}
 
-	var result map[string]interface{}
-	err := u.client.Put(ctx, endpoint, requestBody, &result)
+	var rawResponse interface{}
+	err := u.client.Put(ctx, endpoint, requestBody, &rawResponse)
 	if err != nil {
 		return nil, fmt.Errorf("update item: %w", err)
 	}
 
+	parsedResponse, err := normalizeUpdateResponse(rawResponse)
+	if err != nil {
+		return nil, fmt.Errorf("update item: invalid response payload: %w", err)
+	}
+
 	// Parse result
 	updateResult := &UpdateResult{
-		Data: result,
+		ID:   id,
+		Data: parsedResponse,
 	}
 
 	// Extract ID if present
-	if idVal, ok := result["id"]; ok {
+	if idVal, ok := parsedResponse["id"]; ok {
 		switch v := idVal.(type) {
 		case float64:
 			updateResult.ID = int(v)
@@ -94,13 +100,34 @@ func (u *UpdateTool) Execute(ctx context.Context, itemtype string, id int, data 
 	}
 
 	// Extract message if present
-	if msgVal, ok := result["message"]; ok {
+	if msgVal, ok := parsedResponse["message"]; ok {
 		if msg, ok := msgVal.(string); ok {
 			updateResult.Message = msg
 		}
 	}
 
 	return updateResult, nil
+}
+
+func normalizeUpdateResponse(raw interface{}) (map[string]interface{}, error) {
+	switch v := raw.(type) {
+	case map[string]interface{}:
+		return v, nil
+	case []interface{}:
+		if len(v) == 0 {
+			return nil, fmt.Errorf("empty array")
+		}
+		for _, entry := range v {
+			if obj, ok := entry.(map[string]interface{}); ok {
+				return obj, nil
+			}
+		}
+		return nil, fmt.Errorf("array does not contain object entries")
+	case nil:
+		return nil, fmt.Errorf("nil response")
+	default:
+		return nil, fmt.Errorf("unsupported payload type %T", v)
+	}
 }
 
 // Ensure UpdateTool implements the Tool interface
