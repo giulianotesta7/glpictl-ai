@@ -71,10 +71,12 @@ func main() {
 
 	// Register glpi_get tool
 	getTool := mcp.NewTool("glpi_get",
-		mcp.WithDescription("Get a single GLPI item by type and ID"),
+		mcp.WithDescription("Get a single GLPI item by type and ID, with optional related details"),
 		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
 		mcp.WithNumber("id", mcp.Required(), mcp.Description("Item ID")),
 		mcp.WithArray("fields", mcp.Description("Fields to return (empty = all)"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithArray("include", mcp.Description("Read-only related details to include: software, network_ports, connected_devices, contracts, history"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithBoolean("expand_dropdowns", mcp.Description("Expand dropdown IDs to their display names")),
 	)
 	s.AddTool(getTool, createGetHandler(client))
 
@@ -268,13 +270,22 @@ func createGetHandler(client *glpi.Client) server.ToolHandlerFunc {
 			fields = fieldsVal
 		}
 
+		// Extract optional includes
+		var includes []string
+		if includeVal := request.GetStringSlice("include", nil); includeVal != nil {
+			includes = includeVal
+		}
+
+		// Extract expand_dropdowns
+		expandDropdowns := request.GetBool("expand_dropdowns", false)
+
 		tool, err := tools.NewGetTool(client)
 		if err != nil {
 			wrappedErr := fmt.Errorf("create get tool: %w", err)
 			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
-		result, err := tool.Execute(ctx, itemType, id, fields)
+		result, err := tool.Execute(ctx, itemType, id, fields, includes, expandDropdowns)
 		if err != nil {
 			wrappedErr := fmt.Errorf("get item: %w", err)
 			return mcp.NewToolResultError(wrappedErr.Error()), nil
