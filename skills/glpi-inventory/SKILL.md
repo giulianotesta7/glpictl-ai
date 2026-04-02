@@ -26,3 +26,21 @@ Use this skill when querying GLPI inventory entities through MCP tools.
 1. `glpi_list_fields(itemtype="Computer")`
 2. Pick `uid="Computer.name"`
 3. `glpi_search(itemtype="Computer", criteria=[{"field_name":"Computer.name","searchtype":"contains","value":"laptop"}])`
+
+## Update by name
+
+When the agent needs to update a single item using a human-friendly name:
+
+1. Use `glpi_update_by_name` with:
+   - `itemtype` — the GLPI item type
+   - `name` — the exact name to match
+   - `data` — fields to update
+
+2. The tool enforces exact-match-only semantics:
+   - Updates only when exactly one item has that name
+   - Returns a clear error if zero matches or multiple matches
+   - Never auto-selects among duplicates
+
+3. On ambiguity, the error includes candidate IDs so the agent can disambiguate.
+
+4. If `glpi_update_by_name` returns not-found or ambiguous, fall back to `glpi_search` to investigate and then retry with a disambiguated name or use `glpi_update` with an explicit ID.
