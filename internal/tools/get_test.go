@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
@@ -185,6 +186,93 @@ func TestGetTool_Execute(t *testing.T) {
 		}
 		if !errors.Is(err, glpi.ErrAuthFailed) {
 			t.Errorf("expected ErrAuthFailed, got %v", err)
+		}
+	})
+
+	t.Run("include licenses for software", func(t *testing.T) {
+		mockClient := &MockClient{
+			GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				if endpoint != "/Software/1?with_softwarelicenses=true" {
+					t.Errorf("endpoint = %q, want %q", endpoint, "/Software/1?with_softwarelicenses=true")
+				}
+				resMap := result.(*map[string]interface{})
+				*resMap = map[string]interface{}{
+					"id":   float64(1),
+					"name": "Test Software",
+				}
+				return nil
+			},
+		}
+
+		tool, _ := NewGetTool(mockClient)
+		result, err := tool.Execute(context.Background(), "Software", 1, nil, []string{"licenses"}, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.ID != 1 {
+			t.Errorf("ID = %d, want 1", result.ID)
+		}
+	})
+
+	t.Run("include software_versions for software", func(t *testing.T) {
+		mockClient := &MockClient{
+			GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				if endpoint != "/Software/1?with_softwareversions=true" {
+					t.Errorf("endpoint = %q, want %q", endpoint, "/Software/1?with_softwareversions=true")
+				}
+				resMap := result.(*map[string]interface{})
+				*resMap = map[string]interface{}{
+					"id":   float64(1),
+					"name": "Test Software",
+				}
+				return nil
+			},
+		}
+
+		tool, _ := NewGetTool(mockClient)
+		result, err := tool.Execute(context.Background(), "Software", 1, nil, []string{"software_versions"}, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.ID != 1 {
+			t.Errorf("ID = %d, want 1", result.ID)
+		}
+	})
+
+	t.Run("licenses include rejected for non-software itemtype", func(t *testing.T) {
+		mockClient := &MockClient{
+			GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				// This should never be called because validation should fail first
+				t.Error("GetFunc should not be called when include validation fails")
+				return nil
+			},
+		}
+
+		tool, _ := NewGetTool(mockClient)
+		_, err := tool.Execute(context.Background(), "Computer", 1, nil, []string{"licenses"}, false)
+		if err == nil {
+			t.Fatal("expected error for 'licenses' include on Computer itemtype")
+		}
+		if !strings.Contains(err.Error(), "unsupported include") || !strings.Contains(err.Error(), "Computer") {
+			t.Errorf("error should mention unsupported include and Computer, got: %v", err)
+		}
+	})
+
+	t.Run("software_versions include rejected for non-software itemtype", func(t *testing.T) {
+		mockClient := &MockClient{
+			GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				t.Error("GetFunc should not be called when include validation fails")
+				return nil
+			},
+		}
+
+		tool, _ := NewGetTool(mockClient)
+		_, err := tool.Execute(context.Background(), "Printer", 1, nil, []string{"software_versions"}, false)
+		if err == nil {
+			t.Fatal("expected error for 'software_versions' include on Printer itemtype")
+		}
+		if !strings.Contains(err.Error(), "unsupported include") || !strings.Contains(err.Error(), "Printer") {
+			t.Errorf("error should mention unsupported include and Printer, got: %v", err)
 		}
 	})
 }

@@ -75,7 +75,7 @@ func main() {
 		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
 		mcp.WithNumber("id", mcp.Required(), mcp.Description("Item ID")),
 		mcp.WithArray("fields", mcp.Description("Fields to return (empty = all)"), mcp.Items(map[string]any{"type": "string"})),
-		mcp.WithArray("include", mcp.Description("Read-only related details to include: software, network_ports, connected_devices, contracts, history"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithArray("include", mcp.Description("Read-only related details to include: software, network_ports, connected_devices, contracts, history, licenses, software_versions"), mcp.Items(map[string]any{"type": "string"})),
 		mcp.WithBoolean("expand_dropdowns", mcp.Description("Expand dropdown IDs to their display names")),
 	)
 	s.AddTool(getTool, createGetHandler(client))
@@ -94,6 +94,14 @@ func main() {
 		mcp.WithArray("itemtypes", mcp.Description("Itemtypes to count (default: all inventory types)"), mcp.Items(map[string]any{"type": "string"})),
 	)
 	s.AddTool(summaryTool, createSummaryHandler(client))
+
+	// Register glpi_license_compliance tool
+	licenseComplianceTool := mcp.NewTool("glpi_license_compliance",
+		mcp.WithDescription("Return a software license compliance report comparing purchased licenses vs actual installations"),
+		mcp.WithNumber("software_id", mcp.Required(), mcp.Description("GLPI ID of the Software item to check compliance for")),
+		mcp.WithNumber("entity_id", mcp.Description("Restrict compliance check to this entity scope")),
+	)
+	s.AddTool(licenseComplianceTool, createLicenseComplianceHandler(client))
 
 	// Register glpi_list_fields tool
 	listFieldsTool := newListFieldsMCPTool()
@@ -179,6 +187,7 @@ func main() {
 	}
 }
 
+// newSearchMCPTool returns the MCP tool definition for glpi_search.
 func newSearchMCPTool() mcp.Tool {
 	return mcp.NewTool("glpi_search",
 		mcp.WithDescription("Search GLPI items with criteria and optional field selection"),
@@ -198,6 +207,7 @@ func newSearchMCPTool() mcp.Tool {
 	)
 }
 
+// newListFieldsMCPTool returns the MCP tool definition for glpi_list_fields.
 func newListFieldsMCPTool() mcp.Tool {
 	return mcp.NewTool("glpi_list_fields",
 		mcp.WithDescription("List searchable fields for a GLPI item type"),
@@ -670,6 +680,36 @@ func createSummaryHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("Inventory summary.\nTotal items: %d\nItemtypes queried: %d",
 			result.Total, len(result.Itemtypes))), nil
+	}
+}
+
+// createLicenseComplianceHandler creates the MCP tool handler for the glpi_license_compliance command.
+func createLicenseComplianceHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		softwareID, err := request.RequireInt("software_id")
+		if err != nil {
+			return mcp.NewToolResultError("software_id is required and must be a number"), nil
+		}
+
+		entityID := 0
+		if eid, err := request.RequireInt("entity_id"); err == nil {
+			entityID = int(eid)
+		}
+
+		tool, err := tools.NewLicenseComplianceTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create license compliance tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, softwareID, entityID)
+		if err != nil {
+			wrappedErr := fmt.Errorf("license compliance: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("License compliance report.\nSoftware: %s (ID: %d)\nPurchased: %d\nInstalled: %d\nGap: %d\nStatus: %s",
+			result.SoftwareName, result.SoftwareID, result.PurchasedCount, result.InstalledCount, result.ComplianceGap, result.Status)), nil
 	}
 }
 
