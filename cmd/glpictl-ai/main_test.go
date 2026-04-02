@@ -331,9 +331,9 @@ func TestGLPIInventorySkill_ContainsCoreGuidance(t *testing.T) {
 	content := string(contentBytes)
 
 	requiredPhrases := []string{
-		"Discover fields first",
+		"Discover fields before searching",
 		"glpi_list_fields",
-		"Prefer `uid`",
+		"Prefer UID",
 		"glpi_search",
 		"field_name",
 	}
