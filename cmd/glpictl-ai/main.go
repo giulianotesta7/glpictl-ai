@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -101,6 +102,15 @@ func main() {
 		mcp.WithObject("data", mcp.Required(), mcp.Description("Fields to update")),
 	)
 	s.AddTool(updateTool, createUpdateHandler(client))
+
+	// Register glpi_update_by_name tool
+	updateByNameTool := mcp.NewTool("glpi_update_by_name",
+		mcp.WithDescription("Update a GLPI item only when exactly one exact name match exists; returns an explicit error on zero or duplicate matches"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Exact item name to match")),
+		mcp.WithObject("data", mcp.Required(), mcp.Description("Fields to update")),
+	)
+	s.AddTool(updateByNameTool, createUpdateByNameHandler(client))
 
 	// Register glpi_delete tool
 	deleteTool := mcp.NewTool("glpi_delete",
@@ -485,5 +495,56 @@ func createDeleteHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultText(fmt.Sprintf("Item deleted successfully.\nID: %d\nMessage: %s",
 			result.ID, result.Message)), nil
+	}
+}
+
+// createUpdateByNameHandler creates the MCP tool handler for the glpi_update_by_name command.
+func createUpdateByNameHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		name, err := request.RequireString("name")
+		if err != nil {
+			return mcp.NewToolResultError("name is required and must be a string"), nil
+		}
+
+		// Extract data from raw args
+		rawArgs := request.GetRawArguments()
+		argsMap, ok := rawArgs.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("invalid arguments format"), nil
+		}
+
+		data, ok := argsMap["data"].(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("data is required and must be an object"), nil
+		}
+
+		tool, err := tools.NewUpdateByNameTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create update-by-name tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType, name, data)
+		if err != nil {
+			// Surface typed errors with useful disambiguation data
+			if ambiguousErr, ok := err.(*tools.UpdateByNameAmbiguousError); ok {
+				matchIDs := make([]string, 0, len(ambiguousErr.Matches))
+				for _, m := range ambiguousErr.Matches {
+					matchIDs = append(matchIDs, fmt.Sprintf("%d (%s)", m.ID, m.Name))
+				}
+				wrappedErr := fmt.Errorf("%s; showing first %d of %d matches: %s", err, len(ambiguousErr.Matches), ambiguousErr.TotalCount, strings.Join(matchIDs, ", "))
+				return mcp.NewToolResultError(wrappedErr.Error()), nil
+			}
+			wrappedErr := fmt.Errorf("update by name: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Item updated successfully by name.\nID: %d\nName: %s\nMessage: %s",
+			result.ID, result.Name, result.Message)), nil
 	}
 }
