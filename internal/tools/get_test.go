@@ -66,7 +66,7 @@ func TestGetTool_Execute(t *testing.T) {
 		}
 
 		tool, _ := NewGetTool(mockClient)
-		result, err := tool.Execute(context.Background(), "Computer", 5, nil)
+		result, err := tool.Execute(context.Background(), "Computer", 5, nil, nil, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -99,7 +99,7 @@ func TestGetTool_Execute(t *testing.T) {
 
 		tool, _ := NewGetTool(mockClient)
 		fields := []string{"name", "serial"}
-		result, err := tool.Execute(context.Background(), "Computer", 5, fields)
+		result, err := tool.Execute(context.Background(), "Computer", 5, fields, nil, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -117,7 +117,7 @@ func TestGetTool_Execute(t *testing.T) {
 		}
 
 		tool, _ := NewGetTool(mockClient)
-		_, err := tool.Execute(context.Background(), "Computer", 999, nil)
+		_, err := tool.Execute(context.Background(), "Computer", 999, nil, nil, false)
 		if err == nil {
 			t.Fatal("expected error for not found item")
 		}
@@ -134,7 +134,7 @@ func TestGetTool_Execute(t *testing.T) {
 		}
 
 		tool, _ := NewGetTool(mockClient)
-		_, err := tool.Execute(context.Background(), "../admin", 1, nil)
+		_, err := tool.Execute(context.Background(), "../admin", 1, nil, nil, false)
 		if err == nil {
 			t.Fatal("expected error for path traversal itemtype")
 		}
@@ -148,7 +148,7 @@ func TestGetTool_Execute(t *testing.T) {
 		}
 
 		tool, _ := NewGetTool(mockClient)
-		_, err := tool.Execute(context.Background(), "Computer", 1, nil)
+		_, err := tool.Execute(context.Background(), "Computer", 1, nil, nil, false)
 		if err == nil {
 			t.Fatal("expected error for server error")
 		}
@@ -162,7 +162,7 @@ func TestGetTool_Execute(t *testing.T) {
 		}
 
 		tool, _ := NewGetTool(mockClient)
-		_, err := tool.Execute(context.Background(), "Computer", 1, nil)
+		_, err := tool.Execute(context.Background(), "Computer", 1, nil, nil, false)
 		if err == nil {
 			t.Fatal("expected error for session expired")
 		}
@@ -179,7 +179,7 @@ func TestGetTool_Execute(t *testing.T) {
 		}
 
 		tool, _ := NewGetTool(mockClient)
-		_, err := tool.Execute(context.Background(), "Computer", 1, nil)
+		_, err := tool.Execute(context.Background(), "Computer", 1, nil, nil, false)
 		if err == nil {
 			t.Fatal("expected error for auth failed")
 		}

@@ -44,3 +44,18 @@ When the agent needs to update a single item using a human-friendly name:
 3. On ambiguity, the error includes candidate IDs so the agent can disambiguate.
 
 4. If `glpi_update_by_name` returns not-found or ambiguous, fall back to `glpi_search` to investigate and then retry with a disambiguated name or use `glpi_update` with an explicit ID.
+
+## Asset detail expand
+
+When the agent needs richer context for an item before deciding next actions:
+
+1. Use `glpi_get` with the optional `include` parameter to request related read-only details:
+   - `software` — installed software
+   - `network_ports` — network port info
+   - `connected_devices` — connected device relationships
+   - `contracts` — associated contracts
+   - `history` — change log
+
+2. Use `expand_dropdowns=true` to translate dropdown IDs to human-readable display names.
+
+3. If the agent does not request includes, `glpi_get` behaves exactly as before (backward compatible).

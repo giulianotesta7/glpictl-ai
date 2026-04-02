@@ -6,11 +6,21 @@ import (
 	"strings"
 )
 
+var getIncludeQueryParams = map[string]string{
+	"software":          "with_softwares=true",
+	"network_ports":     "with_networkports=true",
+	"connected_devices": "with_connections=true",
+	"contracts":         "with_contracts=true",
+	"history":           "with_logs=true",
+}
+
 // GetInput represents the input for the glpi_get tool.
 type GetInput struct {
-	ItemType string   `json:"itemtype"` // GLPI item type (e.g., Computer, Printer)
-	ID       int      `json:"id"`       // Item ID
-	Fields   []string `json:"fields"`   // Fields to return (empty = all)
+	ItemType        string   `json:"itemtype"`
+	ID              int      `json:"id"`
+	Fields          []string `json:"fields,omitempty"`
+	Include         []string `json:"include,omitempty"`
+	ExpandDropdowns bool     `json:"expand_dropdowns,omitempty"`
 }
 
 // GetResult represents the result of a get operation.
@@ -27,7 +37,6 @@ type GetTool struct {
 }
 
 // NewGetTool creates a new get tool with the given client.
-// Returns an error if the client is nil.
 func NewGetTool(client ToolClient) (*GetTool, error) {
 	if client == nil {
 		return nil, fmt.Errorf("get tool: client cannot be nil")
@@ -42,7 +51,7 @@ func (g *GetTool) Name() string {
 
 // Description returns the tool description.
 func (g *GetTool) Description() string {
-	return "Get a single GLPI item by type and ID"
+	return "Get a single GLPI item by type and ID, with optional related details"
 }
 
 // GetInput returns a new input struct for the tool.
@@ -51,8 +60,7 @@ func (g *GetTool) GetInput() *GetInput {
 }
 
 // Execute retrieves a GLPI item by type and ID.
-// It handles field filtering and returns the item data.
-func (g *GetTool) Execute(ctx context.Context, itemtype string, id int, fields []string) (*GetResult, error) {
+func (g *GetTool) Execute(ctx context.Context, itemtype string, id int, fields []string, include []string, expandDropdowns bool) (*GetResult, error) {
 	if itemtype == "" {
 		return nil, fmt.Errorf("itemtype is required")
 	}
@@ -63,28 +71,19 @@ func (g *GetTool) Execute(ctx context.Context, itemtype string, id int, fields [
 		return nil, fmt.Errorf("id must be a positive integer")
 	}
 
-	// Build endpoint with optional field filtering
-	endpoint := fmt.Sprintf("/%s/%d", itemtype, id)
-	if len(fields) > 0 {
-		var fieldParams []string
-		for i, field := range fields {
-			fieldParams = append(fieldParams, fmt.Sprintf("fields[%d]=%s", i, field))
-		}
-		endpoint = endpoint + "?" + strings.Join(fieldParams, "&")
+	endpoint, err := buildGetEndpoint(itemtype, id, fields, include, expandDropdowns)
+	if err != nil {
+		return nil, err
 	}
 
 	var result map[string]interface{}
-	err := g.client.Get(ctx, endpoint, &result)
+	err = g.client.Get(ctx, endpoint, &result)
 	if err != nil {
 		return nil, fmt.Errorf("get item: %w", err)
 	}
 
-	// Extract common fields
-	getResult := &GetResult{
-		Data: result,
-	}
+	getResult := &GetResult{Data: result}
 
-	// Extract ID if present
 	if idVal, ok := result["id"]; ok {
 		switch v := idVal.(type) {
 		case float64:
@@ -94,7 +93,6 @@ func (g *GetTool) Execute(ctx context.Context, itemtype string, id int, fields [
 		}
 	}
 
-	// Extract name if present
 	if nameVal, ok := result["name"]; ok {
 		if name, ok := nameVal.(string); ok {
 			getResult.Name = name
@@ -102,6 +100,38 @@ func (g *GetTool) Execute(ctx context.Context, itemtype string, id int, fields [
 	}
 
 	return getResult, nil
+}
+
+func buildGetEndpoint(itemtype string, id int, fields []string, include []string, expandDropdowns bool) (string, error) {
+	endpoint := fmt.Sprintf("/%s/%d", itemtype, id)
+	params := make([]string, 0, len(fields)+len(include)+1)
+
+	for i, field := range fields {
+		params = append(params, fmt.Sprintf("fields[%d]=%s", i, field))
+	}
+
+	if expandDropdowns {
+		params = append(params, "expand_dropdowns=true")
+	}
+
+	seen := make(map[string]struct{}, len(include))
+	for _, rawInclude := range include {
+		queryParam, ok := getIncludeQueryParams[rawInclude]
+		if !ok {
+			return "", fmt.Errorf("unsupported include %q", rawInclude)
+		}
+		if _, exists := seen[rawInclude]; exists {
+			continue
+		}
+		seen[rawInclude] = struct{}{}
+		params = append(params, queryParam)
+	}
+
+	if len(params) == 0 {
+		return endpoint, nil
+	}
+
+	return endpoint + "?" + strings.Join(params, "&"), nil
 }
 
 // Ensure GetTool implements the Tool interface
