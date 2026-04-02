@@ -115,6 +115,14 @@ func main() {
 	)
 	s.AddTool(userAssetsTool, createUserAssetsHandler(client))
 
+	// Register glpi_group_assets tool
+	groupAssetsTool := mcp.NewTool("glpi_group_assets",
+		mcp.WithDescription("Get all assets assigned to a specific group"),
+		mcp.WithNumber("group_id", mcp.Required(), mcp.Description("Group ID")),
+		mcp.WithArray("itemtypes", mcp.Description("Itemtypes to search (default: all inventory types)"), mcp.Items(map[string]any{"type": "string"})),
+	)
+	s.AddTool(groupAssetsTool, createGroupAssetsHandler(client))
+
 	// Register glpi_expiration_tracker tool
 	expirationTrackerTool := mcp.NewTool("glpi_expiration_tracker",
 		mcp.WithDescription("Check expiration dates across multiple GLPI itemtypes (certificates, domains, contracts, software licenses, hardware warranties) and return a consolidated report"),
@@ -748,6 +756,35 @@ func createUserAssetsHandler(client *glpi.Client) server.ToolHandlerFunc {
 		}
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("User %d has %d assigned assets.", userID, result.Count)), nil
+	}
+}
+
+// createGroupAssetsHandler creates the MCP tool handler for the glpi_group_assets command.
+func createGroupAssetsHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		groupID, err := request.RequireInt("group_id")
+		if err != nil {
+			return mcp.NewToolResultError("group_id is required and must be a number"), nil
+		}
+
+		var itemtypes []string
+		if itVal := request.GetStringSlice("itemtypes", nil); itVal != nil {
+			itemtypes = itVal
+		}
+
+		tool, err := tools.NewGroupAssetsTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create group assets tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, groupID, itemtypes)
+		if err != nil {
+			wrappedErr := fmt.Errorf("group assets: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Group %d has %d assigned assets.", groupID, result.Count)), nil
 	}
 }
 
