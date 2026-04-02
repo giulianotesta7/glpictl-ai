@@ -69,3 +69,15 @@ When the agent needs to search across multiple itemtypes at once:
 3. Optionally filter with `itemtypes` to limit the search to specific types.
 4. Results are flattened and annotated with `itemtype` for each item.
 5. Response includes `per_itemtype_count` so the agent can see how many items were found per type.
+
+## Bulk update
+
+When the agent needs to update multiple items at once:
+
+1. Use `glpi_bulk_update` with an `items` array where each item has:
+   - `itemtype` — the GLPI item type
+   - `id` or `name` — to identify the item
+   - `data` — fields to update
+2. Per-item results indicate success or failure for each target.
+3. Status values: `updated`, `not_found`, `ambiguous`, `failed`.
+4. If updating by name and there are duplicates, that item is marked `ambiguous` rather than auto-selecting.

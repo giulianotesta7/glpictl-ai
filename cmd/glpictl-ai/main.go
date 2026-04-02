@@ -118,6 +118,21 @@ func main() {
 	)
 	s.AddTool(updateByNameTool, createUpdateByNameHandler(client))
 
+	// Register glpi_bulk_update tool
+	bulkUpdateTool := mcp.NewTool("glpi_bulk_update",
+		mcp.WithDescription("Update multiple GLPI items at once; specify each item by name or ID and receive per-item results"),
+		mcp.WithArray("items", mcp.Required(), mcp.Description("Items to update; each must have itemtype, data, and either id or name"), mcp.Items(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"itemtype": map[string]any{"type": "string", "description": "GLPI item type"},
+				"id":       map[string]any{"type": "number", "description": "Item ID (use id or name)"},
+				"name":     map[string]any{"type": "string", "description": "Exact item name (use id or name)"},
+				"data":     map[string]any{"type": "object", "description": "Fields to update"},
+			},
+		})),
+	)
+	s.AddTool(bulkUpdateTool, createBulkUpdateHandler(client))
+
 	// Register glpi_delete tool
 	deleteTool := mcp.NewTool("glpi_delete",
 		mcp.WithDescription("Delete a GLPI item by type and ID"),
@@ -561,5 +576,59 @@ func createUpdateByNameHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultText(fmt.Sprintf("Item updated successfully by name.\nID: %d\nName: %s\nMessage: %s",
 			result.ID, result.Name, result.Message)), nil
+	}
+}
+
+// createBulkUpdateHandler creates the MCP tool handler for the glpi_bulk_update command.
+func createBulkUpdateHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		rawArgs := request.GetRawArguments()
+		argsMap, ok := rawArgs.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("invalid arguments format"), nil
+		}
+
+		itemsVal, ok := argsMap["items"].([]interface{})
+		if !ok || len(itemsVal) == 0 {
+			return mcp.NewToolResultError("items is required and must be a non-empty array"), nil
+		}
+
+		var items []tools.BulkUpdateItem
+		for _, rawItem := range itemsVal {
+			itemMap, ok := rawItem.(map[string]interface{})
+			if !ok {
+				return mcp.NewToolResultError("each item must be an object"), nil
+			}
+
+			item := tools.BulkUpdateItem{}
+			if it, ok := itemMap["itemtype"].(string); ok {
+				item.ItemType = it
+			}
+			if id, ok := itemMap["id"].(float64); ok {
+				item.ID = int(id)
+			}
+			if name, ok := itemMap["name"].(string); ok {
+				item.Name = name
+			}
+			if data, ok := itemMap["data"].(map[string]interface{}); ok {
+				item.Data = data
+			}
+			items = append(items, item)
+		}
+
+		tool, err := tools.NewBulkUpdateTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create bulk update tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, items)
+		if err != nil {
+			wrappedErr := fmt.Errorf("bulk update: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Bulk update completed.\nUpdated: %d\nFailed: %d\nTotal: %d",
+			result.Updated, result.Failed, result.Total)), nil
 	}
 }
