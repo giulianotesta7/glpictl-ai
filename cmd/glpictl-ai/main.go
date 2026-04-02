@@ -84,6 +84,10 @@ func main() {
 	searchTool := newSearchMCPTool()
 	s.AddTool(searchTool, createSearchHandler(client))
 
+	// Register glpi_global_search tool
+	globalSearchTool := newGlobalSearchMCPTool()
+	s.AddTool(globalSearchTool, createGlobalSearchHandler(client))
+
 	// Register glpi_list_fields tool
 	listFieldsTool := newListFieldsMCPTool()
 	s.AddTool(listFieldsTool, createListFieldsHandler(client))

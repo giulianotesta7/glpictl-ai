@@ -59,3 +59,13 @@ When the agent needs richer context for an item before deciding next actions:
 2. Use `expand_dropdowns=true` to translate dropdown IDs to human-readable display names.
 
 3. If the agent does not request includes, `glpi_get` behaves exactly as before (backward compatible).
+
+## Global search
+
+When the agent needs to search across multiple itemtypes at once:
+
+1. Use `glpi_global_search` with the same criteria format as `glpi_search`.
+2. By default it searches: Computer, Printer, Monitor, NetworkEquipment, Phone, Rack, Peripheral, Enclosure.
+3. Optionally filter with `itemtypes` to limit the search to specific types.
+4. Results are flattened and annotated with `itemtype` for each item.
+5. Response includes `per_itemtype_count` so the agent can see how many items were found per type.
