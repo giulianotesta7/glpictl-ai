@@ -1,83 +1,71 @@
-# glpi-inventory
+---
+name: glpi-inventory
+description: >
+  Query and manage GLPI inventory entities through MCP tools.
+  Trigger: When the AI needs to interact with GLPI inventory items (search, get, create, update, delete, summary).
+license: MIT
+metadata:
+  author: giulianotesta7
+  version: "1.0"
+---
 
-Use this skill when querying GLPI inventory entities through MCP tools.
+## When to Use
 
-## Workflow (MVP)
+- Searching across GLPI inventory types
+- Getting detailed item information
+- Creating, updating, or deleting inventory items
+- Updating items by human-friendly name
+- Bulk-updating multiple items at once
+- Getting an inventory summary dashboard
 
-1. **Discover fields first** with `glpi_list_fields`:
-   - Input: `itemtype` (for example `Computer`, `Monitor`, `Printer`)
-   - Inspect the returned `fields` list and identify the most stable field identifier.
+## Critical Patterns
 
-2. **Prefer `uid` for search criteria**:
-   - Use exact `uid` when available (for example `Computer.name`).
-   - If no `uid` exists, use an exact technical field name.
-   - Only use display names when no technical identifier is available.
+### Discover fields before searching
+Always call `glpi_list_fields` first to discover searchable fields and their UIDs.
 
-3. **Search using `glpi_search` + `field_name`**:
-   - Provide `field_name` and let the tool map it to the numeric GLPI field ID.
-   - Do **not** guess numeric field IDs.
+### Prefer UID for search criteria
+Use exact UID when available (e.g. `Computer.name`). Do not guess numeric field IDs.
 
-4. **Backward compatibility**:
-   - Existing numeric `field` criteria still work.
-   - Prefer `field_name` for readability and portability across environments.
+### Exact match for safe mutation
+Use `glpi_update_by_name` for single-item updates. It enforces exact-match-only and never auto-selects duplicates.
 
-## Example
+### Use include for richer context
+Use `glpi_get` with `include` to request related details (software, ports, contracts, etc.) before deciding next actions.
 
-1. `glpi_list_fields(itemtype="Computer")`
-2. Pick `uid="Computer.name"`
-3. `glpi_search(itemtype="Computer", criteria=[{"field_name":"Computer.name","searchtype":"contains","value":"laptop"}])`
+## Tools Reference
 
-## Update by name
+| Tool | Purpose |
+|------|---------|
+| `ping` | Test GLPI connection |
+| `glpi_list_fields` | Discover searchable fields for an itemtype |
+| `glpi_search` | Search items in a single itemtype |
+| `glpi_global_search` | Search across multiple itemtypes at once |
+| `glpi_get` | Get a single item with optional related details |
+| `glpi_create` | Create a new item |
+| `glpi_update` | Update an item by ID |
+| `glpi_update_by_name` | Update a single item by exact name match |
+| `glpi_bulk_update` | Update multiple items at once |
+| `glpi_delete` | Delete an item by ID |
+| `glpi_summary` | Dashboard with item counts by type |
 
-When the agent needs to update a single item using a human-friendly name:
+## Commands
 
-1. Use `glpi_update_by_name` with:
-   - `itemtype` — the GLPI item type
-   - `name` — the exact name to match
-   - `data` — fields to update
+```
+# Discover fields for Computer
+glpi_list_fields(itemtype="Computer")
 
-2. The tool enforces exact-match-only semantics:
-   - Updates only when exactly one item has that name
-   - Returns a clear error if zero matches or multiple matches
-   - Never auto-selects among duplicates
+# Search by name
+glpi_search(itemtype="Computer", criteria=[{"field_name":"Computer.name","searchtype":"contains","value":"laptop"}])
 
-3. On ambiguity, the error includes candidate IDs so the agent can disambiguate.
+# Get item with software details
+glpi_get(itemtype="Computer", id=5, include=["software"])
 
-4. If `glpi_update_by_name` returns not-found or ambiguous, fall back to `glpi_search` to investigate and then retry with a disambiguated name or use `glpi_update` with an explicit ID.
+# Update by exact name
+glpi_update_by_name(itemtype="Computer", name="PC-001", data={"comment":"updated"})
 
-## Asset detail expand
+# Bulk update by name and ID
+glpi_bulk_update(items=[{"itemtype":"Computer","name":"PC-001","data":{"state_id":5}},{"itemtype":"Printer","id":12,"data":{"comment":"moved"}}])
 
-When the agent needs richer context for an item before deciding next actions:
-
-1. Use `glpi_get` with the optional `include` parameter to request related read-only details:
-   - `software` — installed software
-   - `network_ports` — network port info
-   - `connected_devices` — connected device relationships
-   - `contracts` — associated contracts
-   - `history` — change log
-
-2. Use `expand_dropdowns=true` to translate dropdown IDs to human-readable display names.
-
-3. If the agent does not request includes, `glpi_get` behaves exactly as before (backward compatible).
-
-## Global search
-
-When the agent needs to search across multiple itemtypes at once:
-
-1. Use `glpi_global_search` with the same criteria format as `glpi_search`.
-2. By default it searches: Computer, Printer, Monitor, NetworkEquipment, Phone, Rack, Peripheral, Enclosure.
-3. Optionally filter with `itemtypes` to limit the search to specific types.
-4. Results are flattened and annotated with `itemtype` for each item.
-5. Response includes `per_itemtype_count` so the agent can see how many items were found per type.
-
-## Bulk update
-
-When the agent needs to update multiple items at once:
-
-1. Use `glpi_bulk_update` with an `items` array where each item has:
-   - `itemtype` — the GLPI item type
-   - `id` or `name` — to identify the item
-   - `data` — fields to update
-2. Per-item results indicate success or failure for each target.
-3. Status values: `updated`, `not_found`, `ambiguous`, `failed`.
-4. If updating by name and there are duplicates, that item is marked `ambiguous` rather than auto-selecting.
+# Inventory summary
+glpi_summary()
+```

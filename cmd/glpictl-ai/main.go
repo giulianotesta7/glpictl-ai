@@ -88,6 +88,13 @@ func main() {
 	globalSearchTool := newGlobalSearchMCPTool()
 	s.AddTool(globalSearchTool, createGlobalSearchHandler(client))
 
+	// Register glpi_summary tool
+	summaryTool := mcp.NewTool("glpi_summary",
+		mcp.WithDescription("Return a summary dashboard with item counts by inventory type"),
+		mcp.WithArray("itemtypes", mcp.Description("Itemtypes to count (default: all inventory types)"), mcp.Items(map[string]any{"type": "string"})),
+	)
+	s.AddTool(summaryTool, createSummaryHandler(client))
+
 	// Register glpi_list_fields tool
 	listFieldsTool := newListFieldsMCPTool()
 	s.AddTool(listFieldsTool, createListFieldsHandler(client))
@@ -630,5 +637,30 @@ func createBulkUpdateHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("Bulk update completed.\nUpdated: %d\nFailed: %d\nTotal: %d",
 			result.Updated, result.Failed, result.Total)), nil
+	}
+}
+
+// createSummaryHandler creates the MCP tool handler for the glpi_summary command.
+func createSummaryHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var itemtypes []string
+		if itVal := request.GetStringSlice("itemtypes", nil); itVal != nil {
+			itemtypes = itVal
+		}
+
+		tool, err := tools.NewSummaryTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create summary tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, itemtypes)
+		if err != nil {
+			wrappedErr := fmt.Errorf("summary: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Inventory summary.\nTotal items: %d\nItemtypes queried: %d",
+			result.Total, len(result.Itemtypes))), nil
 	}
 }
