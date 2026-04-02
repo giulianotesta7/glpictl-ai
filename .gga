@@ -11,7 +11,7 @@ FILE_PATTERNS="*.go,go.mod,go.sum"
 
 # File patterns to exclude from review (comma-separated)
 # Default: none
-EXCLUDE_PATTERNS="*_test.go,vendor/*"
+EXCLUDE_PATTERNS="vendor/*"
 
 # File containing code review rules
 # Default: AGENTS.md

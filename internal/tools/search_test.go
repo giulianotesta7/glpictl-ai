@@ -185,6 +185,174 @@ func TestSearchTool_Execute(t *testing.T) {
 		}
 	})
 
+	t.Run("translates field_name using uid", func(t *testing.T) {
+		mockClient := &MockClient{
+			searchOptionsFunc: func(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error) {
+				return &glpi.SearchOptionsResult{
+					ItemType: itemtype,
+					Fields: []glpi.SearchOption{{
+						ID:          1,
+						UID:         "Computer.name",
+						Field:       "name",
+						Name:        "Name",
+						DisplayName: "Name",
+					}},
+				}, nil
+			},
+			GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				if !containsAll(endpoint, "criteria%5B0%5D%5Bfield%5D=1") {
+					t.Errorf("unexpected endpoint: %s", endpoint)
+				}
+				resMap := result.(*map[string]interface{})
+				*resMap = map[string]interface{}{"totalcount": float64(0), "data": []interface{}{}}
+				return nil
+			},
+		}
+
+		tool, _ := NewSearchTool(mockClient)
+		criteria := []SearchCriterion{{FieldName: "Computer.name", SearchType: "contains", Value: "pc"}}
+		if _, err := tool.Execute(context.Background(), "Computer", criteria, nil, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("translates field_name using technical and display name fallback", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			fieldName string
+			wantField string
+		}{
+			{name: "technical field", fieldName: "serial", wantField: "criteria%5B0%5D%5Bfield%5D=10"},
+			{name: "display name", fieldName: "Hostname", wantField: "criteria%5B0%5D%5Bfield%5D=11"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				mockClient := &MockClient{
+					searchOptionsFunc: func(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error) {
+						return &glpi.SearchOptionsResult{
+							ItemType: itemtype,
+							Fields: []glpi.SearchOption{
+								{ID: 10, Field: "serial", Name: "Serial", DisplayName: "Serial Number"},
+								{ID: 11, Field: "name", Name: "Name", DisplayName: "Hostname"},
+							},
+						}, nil
+					},
+					GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+						if !containsAll(endpoint, tt.wantField) {
+							t.Errorf("unexpected endpoint: %s", endpoint)
+						}
+						resMap := result.(*map[string]interface{})
+						*resMap = map[string]interface{}{"totalcount": float64(0), "data": []interface{}{}}
+						return nil
+					},
+				}
+
+				tool, _ := NewSearchTool(mockClient)
+				criteria := []SearchCriterion{{FieldName: tt.fieldName, SearchType: "contains", Value: "pc"}}
+				if _, err := tool.Execute(context.Background(), "Computer", criteria, nil, nil); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("keeps numeric field fast path", func(t *testing.T) {
+		mockClient := &MockClient{
+			searchOptionsFunc: func(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error) {
+				t.Fatal("GetSearchOptions should not be called for numeric field")
+				return nil, nil
+			},
+			GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				if !containsAll(endpoint, "criteria%5B0%5D%5Bfield%5D=42") {
+					t.Errorf("unexpected endpoint: %s", endpoint)
+				}
+				resMap := result.(*map[string]interface{})
+				*resMap = map[string]interface{}{"totalcount": float64(0), "data": []interface{}{}}
+				return nil
+			},
+		}
+
+		tool, _ := NewSearchTool(mockClient)
+		criteria := []SearchCriterion{{Field: 42, SearchType: "equals", Value: "ok"}}
+		if _, err := tool.Execute(context.Background(), "Computer", criteria, nil, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("returns error when field_name is unknown", func(t *testing.T) {
+		mockClient := &MockClient{
+			searchOptionsFunc: func(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error) {
+				return &glpi.SearchOptionsResult{
+					ItemType: itemtype,
+					Fields:   []glpi.SearchOption{{ID: 1, UID: "Computer.name", Field: "name", Name: "Name", DisplayName: "Name"}},
+				}, nil
+			},
+		}
+
+		tool, _ := NewSearchTool(mockClient)
+		criteria := []SearchCriterion{{FieldName: "serial", SearchType: "contains", Value: "A"}}
+		_, err := tool.Execute(context.Background(), "Computer", criteria, nil, nil)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "field_name") {
+			t.Fatalf("expected field_name error, got %v", err)
+		}
+	})
+
+	t.Run("returns error when field_name is ambiguous", func(t *testing.T) {
+		mockClient := &MockClient{
+			searchOptionsFunc: func(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error) {
+				return &glpi.SearchOptionsResult{
+					ItemType: itemtype,
+					Fields: []glpi.SearchOption{
+						{ID: 1, DisplayName: "Serial"},
+						{ID: 2, DisplayName: "Serial"},
+					},
+				}, nil
+			},
+		}
+
+		tool, _ := NewSearchTool(mockClient)
+		criteria := []SearchCriterion{{FieldName: "Serial", SearchType: "contains", Value: "A"}}
+		_, err := tool.Execute(context.Background(), "Computer", criteria, nil, nil)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "ambiguous") {
+			t.Fatalf("expected ambiguous error, got %v", err)
+		}
+	})
+
+	t.Run("supports mixed criteria with field and field_name", func(t *testing.T) {
+		mockClient := &MockClient{
+			searchOptionsFunc: func(ctx context.Context, itemtype string) (*glpi.SearchOptionsResult, error) {
+				return &glpi.SearchOptionsResult{
+					ItemType: itemtype,
+					Fields:   []glpi.SearchOption{{ID: 10, UID: "Computer.serial", Field: "serial", Name: "Serial", DisplayName: "Serial"}},
+				}, nil
+			},
+			GetFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				if !containsAll(endpoint, "criteria%5B0%5D%5Bfield%5D=1", "criteria%5B1%5D%5Bfield%5D=10") {
+					t.Errorf("unexpected endpoint: %s", endpoint)
+				}
+				resMap := result.(*map[string]interface{})
+				*resMap = map[string]interface{}{"totalcount": float64(0), "data": []interface{}{}}
+				return nil
+			},
+		}
+
+		tool, _ := NewSearchTool(mockClient)
+		criteria := []SearchCriterion{
+			{Field: 1, SearchType: "contains", Value: "pc"},
+			{FieldName: "Computer.serial", SearchType: "contains", Value: "SN", Link: "AND"},
+		}
+		if _, err := tool.Execute(context.Background(), "Computer", criteria, nil, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("returns error when item type is empty", func(t *testing.T) {
 		mockClient := &MockClient{}
 		tool, _ := NewSearchTool(mockClient)

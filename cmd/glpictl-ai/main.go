@@ -78,22 +78,12 @@ func main() {
 	s.AddTool(getTool, createGetHandler(client))
 
 	// Register glpi_search tool
-	searchTool := mcp.NewTool("glpi_search",
-		mcp.WithDescription("Search GLPI items with criteria and optional field selection"),
-		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
-		mcp.WithArray("criteria", mcp.Required(), mcp.Description("Search criteria array"), mcp.Items(map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"field":      map[string]any{"type": "number", "description": "Field ID to search on"},
-				"searchtype": map[string]any{"type": "string", "description": "Search type (contains, equals, etc.)"},
-				"value":      map[string]any{"type": "string", "description": "Search value"},
-				"link":       map[string]any{"type": "string", "description": "Link operator (AND, OR)"},
-			},
-		})),
-		mcp.WithArray("fields", mcp.Description("Fields to return"), mcp.Items(map[string]any{"type": "string"})),
-		mcp.WithObject("range", mcp.Description("Result range (start-end)")),
-	)
+	searchTool := newSearchMCPTool()
 	s.AddTool(searchTool, createSearchHandler(client))
+
+	// Register glpi_list_fields tool
+	listFieldsTool := newListFieldsMCPTool()
+	s.AddTool(listFieldsTool, createListFieldsHandler(client))
 
 	// Register glpi_create tool
 	createTool := mcp.NewTool("glpi_create",
@@ -141,6 +131,32 @@ func main() {
 		slog.Error("Server error", "error", err)
 		os.Exit(ExitError)
 	}
+}
+
+func newSearchMCPTool() mcp.Tool {
+	return mcp.NewTool("glpi_search",
+		mcp.WithDescription("Search GLPI items with criteria and optional field selection"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithArray("criteria", mcp.Required(), mcp.Description("Search criteria array"), mcp.Items(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"field":      map[string]any{"type": "number", "description": "Field ID to search on"},
+				"field_name": map[string]any{"type": "string", "description": "Field name or uid to translate to GLPI field ID"},
+				"searchtype": map[string]any{"type": "string", "description": "Search type (contains, equals, etc.)"},
+				"value":      map[string]any{"type": "string", "description": "Search value"},
+				"link":       map[string]any{"type": "string", "description": "Link operator (AND, OR)"},
+			},
+		})),
+		mcp.WithArray("fields", mcp.Description("Fields to return"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithObject("range", mcp.Description("Result range (start-end)")),
+	)
+}
+
+func newListFieldsMCPTool() mcp.Tool {
+	return mcp.NewTool("glpi_list_fields",
+		mcp.WithDescription("List searchable fields for a GLPI item type"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+	)
 }
 
 // setupLogger configures slog based on the log level.
@@ -193,7 +209,8 @@ func createPingHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		err := client.InitSession(ctx)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("GLPI connection failed: %v", err)), nil
+			wrappedErr := fmt.Errorf("ping tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		sessionToken := client.SessionToken()
@@ -243,12 +260,14 @@ func createGetHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		tool, err := tools.NewGetTool(client)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to create get tool: %v", err)), nil
+			wrappedErr := fmt.Errorf("create get tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		result, err := tool.Execute(ctx, itemType, id, fields)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Get item failed: %v", err)), nil
+			wrappedErr := fmt.Errorf("get item: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Item retrieved successfully.\nID: %d\nName: %s\nData: %v",
@@ -281,6 +300,9 @@ func createSearchHandler(client *glpi.Client) server.ToolHandlerFunc {
 					}
 					if st, ok := cmap["searchtype"].(string); ok {
 						criterion.SearchType = st
+					}
+					if fieldName, ok := cmap["field_name"].(string); ok {
+						criterion.FieldName = fieldName
 					}
 					if v, ok := cmap["value"].(string); ok {
 						criterion.Value = v
@@ -317,16 +339,43 @@ func createSearchHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		tool, err := tools.NewSearchTool(client)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to create search tool: %v", err)), nil
+			wrappedErr := fmt.Errorf("create search tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		result, err := tool.Execute(ctx, itemType, criteria, fields, searchRange)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Search failed: %v", err)), nil
+			wrappedErr := fmt.Errorf("search items: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Search completed.\nTotal count: %d\nResults: %d items",
 			result.TotalCount, len(result.Data))), nil
+	}
+}
+
+// createListFieldsHandler creates the MCP tool handler for glpi_list_fields.
+func createListFieldsHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		tool, err := tools.NewListFieldsTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create list fields tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType)
+		if err != nil {
+			wrappedErr := fmt.Errorf("list fields: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("List fields completed.\nItemType: %s\nFields: %d\nCached: %t",
+			result.ItemType, len(result.Fields), result.Cached)), nil
 	}
 }
 
@@ -352,12 +401,14 @@ func createCreateHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		tool, err := tools.NewCreateTool(client)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to create create tool: %v", err)), nil
+			wrappedErr := fmt.Errorf("create create tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		result, err := tool.Execute(ctx, itemType, data)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Create item failed: %v", err)), nil
+			wrappedErr := fmt.Errorf("create item: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Item created successfully.\nID: %d\nMessage: %s",
@@ -392,12 +443,14 @@ func createUpdateHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		tool, err := tools.NewUpdateTool(client)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to create update tool: %v", err)), nil
+			wrappedErr := fmt.Errorf("create update tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		result, err := tool.Execute(ctx, itemType, id, data)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Update item failed: %v", err)), nil
+			wrappedErr := fmt.Errorf("update item: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Item updated successfully.\nID: %d\nMessage: %s",
@@ -420,12 +473,14 @@ func createDeleteHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		tool, err := tools.NewDeleteTool(client)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to create delete tool: %v", err)), nil
+			wrappedErr := fmt.Errorf("create delete tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		result, err := tool.Execute(ctx, itemType, id)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Delete item failed: %v", err)), nil
+			wrappedErr := fmt.Errorf("delete item: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Item deleted successfully.\nID: %d\nMessage: %s",
