@@ -20,7 +20,7 @@ func TestValidateItemType(t *testing.T) {
 		{"semicolon injection", "Computer;DROP", false},
 		{"dash not allowed", "Network-Equipment", false},
 		{"space not allowed", "Computer Lab", false},
-		{"underscore not allowed", "Computer_Type", false},
+		{"underscore allowed (link tables)", "Item_SoftwareVersion", true},
 		{"starts with number", "123Computer", false},
 		{"only numbers", "123", false},
 		{"special chars", "Computer<script>", false},

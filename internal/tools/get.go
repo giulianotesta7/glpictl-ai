@@ -6,12 +6,21 @@ import (
 	"strings"
 )
 
+// getIncludeQueryParams maps include names to their GLPI query parameters.
 var getIncludeQueryParams = map[string]string{
 	"software":          "with_softwares=true",
 	"network_ports":     "with_networkports=true",
 	"connected_devices": "with_connections=true",
 	"contracts":         "with_contracts=true",
 	"history":           "with_logs=true",
+	"licenses":          "with_softwarelicenses=true",
+	"software_versions": "with_softwareversions=true",
+}
+
+// softwareOnlyIncludes contains includes that are only valid for the Software itemtype.
+var softwareOnlyIncludes = map[string]struct{}{
+	"licenses":          {},
+	"software_versions": {},
 }
 
 // GetInput represents the input for the glpi_get tool.
@@ -116,6 +125,10 @@ func buildGetEndpoint(itemtype string, id int, fields []string, include []string
 
 	seen := make(map[string]struct{}, len(include))
 	for _, rawInclude := range include {
+		// Validate that software-only includes are only used with Software itemtype
+		if _, isSoftwareOnly := softwareOnlyIncludes[rawInclude]; isSoftwareOnly && itemtype != "Software" {
+			return "", fmt.Errorf("unsupported include %q for itemtype %q", rawInclude, itemtype)
+		}
 		queryParam, ok := getIncludeQueryParams[rawInclude]
 		if !ok {
 			return "", fmt.Errorf("unsupported include %q", rawInclude)
