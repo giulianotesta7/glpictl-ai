@@ -115,6 +115,15 @@ func main() {
 	)
 	s.AddTool(userAssetsTool, createUserAssetsHandler(client))
 
+	// Register glpi_expiration_tracker tool
+	expirationTrackerTool := mcp.NewTool("glpi_expiration_tracker",
+		mcp.WithDescription("Check expiration dates across multiple GLPI itemtypes (certificates, domains, contracts, software licenses, hardware warranties) and return a consolidated report"),
+		mcp.WithNumber("days_ahead", mcp.Required(), mcp.Description("Number of days ahead to look for expiring items (must be > 0)")),
+		mcp.WithArray("itemtypes", mcp.Description("Itemtypes to check (default: all expiration-bearing types: Certificate, Domain, Contract, SoftwareLicense, Computer, Monitor, Printer, NetworkEquipment, Peripheral, Phone)"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithNumber("entity_id", mcp.Description("Restrict to this entity scope")),
+	)
+	s.AddTool(expirationTrackerTool, createExpirationTrackerHandler(client))
+
 	// Register glpi_create tool
 	createTool := mcp.NewTool("glpi_create",
 		mcp.WithDescription("Create a new GLPI item"),
@@ -739,5 +748,40 @@ func createUserAssetsHandler(client *glpi.Client) server.ToolHandlerFunc {
 		}
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("User %d has %d assigned assets.", userID, result.Count)), nil
+	}
+}
+
+// createExpirationTrackerHandler creates the MCP tool handler for the glpi_expiration_tracker command.
+func createExpirationTrackerHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		daysAhead, err := request.RequireInt("days_ahead")
+		if err != nil {
+			return mcp.NewToolResultError("days_ahead is required and must be a number"), nil
+		}
+
+		var itemtypes []string
+		if itVal := request.GetStringSlice("itemtypes", nil); itVal != nil {
+			itemtypes = itVal
+		}
+
+		entityID := 0
+		if eid, err := request.RequireInt("entity_id"); err == nil {
+			entityID = int(eid)
+		}
+
+		tool, err := tools.NewExpirationTrackerTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create expiration tracker tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, daysAhead, itemtypes, entityID)
+		if err != nil {
+			wrappedErr := fmt.Errorf("expiration tracker: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Expiration check completed.\nDays ahead: %d\nTotal expiring items: %d\nItemtypes queried: %d",
+			result.DaysAhead, result.TotalExpiring, len(result.ByItemtype))), nil
 	}
 }
