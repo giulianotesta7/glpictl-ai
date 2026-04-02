@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -55,12 +56,8 @@ func TestUpdateTool_Execute(t *testing.T) {
 				if endpoint != "/Computer/5" {
 					t.Errorf("endpoint = %q, want %q", endpoint, "/Computer/5")
 				}
-				resMap := result.(*map[string]interface{})
-				*resMap = map[string]interface{}{
-					"id":      float64(5),
-					"message": "Item updated",
-				}
-				return nil
+				responseBody := []byte(`{"id":5,"message":"Item updated"}`)
+				return json.Unmarshal(responseBody, result)
 			},
 		}
 
@@ -78,6 +75,137 @@ func TestUpdateTool_Execute(t *testing.T) {
 		}
 		if result.Message != "Item updated" {
 			t.Errorf("Message = %q, want %q", result.Message, "Item updated")
+		}
+	})
+
+	t.Run("handles array-shaped GLPI update response", func(t *testing.T) {
+		mockClient := &MockClient{
+			PutFunc: func(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+				responseBody := []byte(`[{"id": 5, "message": "Item updated"}]`)
+				return json.Unmarshal(responseBody, result)
+			},
+		}
+
+		tool, _ := NewUpdateTool(mockClient)
+		data := map[string]interface{}{"name": "Updated Computer"}
+
+		result, err := tool.Execute(context.Background(), "Computer", 5, data)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.ID != 5 {
+			t.Errorf("ID = %d, want %d", result.ID, 5)
+		}
+		if result.Message != "Item updated" {
+			t.Errorf("Message = %q, want %q", result.Message, "Item updated")
+		}
+	})
+
+	t.Run("falls back to input id when array response has no id", func(t *testing.T) {
+		mockClient := &MockClient{
+			PutFunc: func(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+				responseBody := []byte(`[{"message": "Item updated"}]`)
+				return json.Unmarshal(responseBody, result)
+			},
+		}
+
+		tool, _ := NewUpdateTool(mockClient)
+		data := map[string]interface{}{"name": "Updated Computer"}
+
+		result, err := tool.Execute(context.Background(), "Computer", 9, data)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.ID != 9 {
+			t.Errorf("ID = %d, want %d", result.ID, 9)
+		}
+		if result.Message != "Item updated" {
+			t.Errorf("Message = %q, want %q", result.Message, "Item updated")
+		}
+	})
+
+	t.Run("handles object payload without message", func(t *testing.T) {
+		mockClient := &MockClient{
+			PutFunc: func(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+				responseBody := []byte(`{"id": 5}`)
+				return json.Unmarshal(responseBody, result)
+			},
+		}
+
+		tool, _ := NewUpdateTool(mockClient)
+		data := map[string]interface{}{"name": "Updated Computer"}
+
+		result, err := tool.Execute(context.Background(), "Computer", 5, data)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.ID != 5 {
+			t.Errorf("ID = %d, want %d", result.ID, 5)
+		}
+		if result.Message != "" {
+			t.Errorf("Message = %q, want empty string", result.Message)
+		}
+	})
+
+	t.Run("returns error on nil response payload", func(t *testing.T) {
+		mockClient := &MockClient{
+			PutFunc: func(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+				return nil
+			},
+		}
+
+		tool, _ := NewUpdateTool(mockClient)
+		_, err := tool.Execute(context.Background(), "Computer", 5, map[string]interface{}{"name": "Updated Computer"})
+		if err == nil {
+			t.Fatal("expected error for nil response payload")
+		}
+	})
+
+	t.Run("returns error on empty array payload", func(t *testing.T) {
+		mockClient := &MockClient{
+			PutFunc: func(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+				responseBody := []byte(`[]`)
+				return json.Unmarshal(responseBody, result)
+			},
+		}
+
+		tool, _ := NewUpdateTool(mockClient)
+		_, err := tool.Execute(context.Background(), "Computer", 5, map[string]interface{}{"name": "Updated Computer"})
+		if err == nil {
+			t.Fatal("expected error for empty array payload")
+		}
+	})
+
+	t.Run("returns error on non-object array payload", func(t *testing.T) {
+		mockClient := &MockClient{
+			PutFunc: func(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+				responseBody := []byte(`[1, "ok", true]`)
+				return json.Unmarshal(responseBody, result)
+			},
+		}
+
+		tool, _ := NewUpdateTool(mockClient)
+		_, err := tool.Execute(context.Background(), "Computer", 5, map[string]interface{}{"name": "Updated Computer"})
+		if err == nil {
+			t.Fatal("expected error for non-object array payload")
+		}
+	})
+
+	t.Run("returns error on unsupported scalar payload", func(t *testing.T) {
+		mockClient := &MockClient{
+			PutFunc: func(ctx context.Context, endpoint string, body interface{}, result interface{}) error {
+				responseBody := []byte(`123`)
+				return json.Unmarshal(responseBody, result)
+			},
+		}
+
+		tool, _ := NewUpdateTool(mockClient)
+		_, err := tool.Execute(context.Background(), "Computer", 5, map[string]interface{}{"name": "Updated Computer"})
+		if err == nil {
+			t.Fatal("expected error for unsupported scalar payload")
 		}
 	})
 
