@@ -26,24 +26,30 @@ Use `glpi_search` with `itemtype="Software"` to query the catalog. Software vers
 ### Discover fields before querying software
 Always call `glpi_list_fields(itemtype="Software")` first to get valid search fields and UIDs.
 
-### License compliance requires cross-referencing
-To check compliance: search `SoftwareLicense` for a software, then compare `number` (purchased) against installation count. No single tool does this — you must compose queries.
+### License compliance is a single tool call
+Use `glpi_license_compliance(software_id=N)` to get a structured compliance report comparing purchased vs installed licenses. No need to compose multiple queries manually.
 
 ### Use include to see installed software on an asset
 Call `glpi_get(itemtype="Computer", id=N, include=["software"])` to see what's installed on a specific machine.
+
+### Use include to see licenses and versions on software
+Call `glpi_get(itemtype="Software", id=N, include=["licenses"])` to see all licenses for a software, or `include=["software_versions"]` to see all versions.
 
 ## Tools Reference
 
 | Tool | Purpose |
 |------|---------|
 | `glpi_search` | Search software catalog, versions, or licenses |
-| `glpi_get` | Get software details or installed software on an asset |
+| `glpi_get` | Get software details, licenses, or versions on an asset |
 | `glpi_list_fields` | Discover searchable fields for Software/SoftwareVersion/SoftwareLicense |
 | `glpi_create` | Create a new software or license entry |
 | `glpi_update` | Update software or license details |
 | `glpi_update_by_name` | Update software by exact name |
 | `glpi_global_search` | Search across software and related types at once |
 | `glpi_summary` | Get inventory totals including software counts |
+| `glpi_license_compliance` | Get structured compliance report (purchased vs installed) |
+| `glpi_expiration_tracker` | Check software license expiration dates |
+| `glpi_cost_summary` | Get software license cost aggregation |
 
 ## Commands
 
@@ -74,4 +80,10 @@ glpi_update_by_name(itemtype="Software", name="Chrome", data={"comment":"Updated
 
 # Global search across software types
 glpi_global_search(query="office", itemtypes=["Software","SoftwareLicense","SoftwareVersion"])
+
+# Check license compliance for a software
+glpi_license_compliance(software_id=42)
+
+# Get software licenses via include
+glpi_get(itemtype="Software", id=42, include=["licenses"])
 ```

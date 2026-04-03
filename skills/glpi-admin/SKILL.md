@@ -23,14 +23,8 @@ metadata:
 ### glpi_summary gives the dashboard overview
 The `glpi_summary` tool returns item counts grouped by itemtype. Use this as the starting point for admin tasks — it reveals what's in the inventory without querying each type individually.
 
-### Expiration tracking requires cross-type queries
-There's no single "alerts" tool. Expiration monitoring requires querying each type with date-range criteria: `Certificate`, `Domain`, `SoftwareLicense`, `Contract`, and asset warranty fields. Use `glpi_list_fields` to find the date field UID for each type.
-
-### Certificates and domains are dedicated itemtypes
-Use `itemtype="Certificate"` and `itemtype="Domain"` for tracking. These are separate from computers/network equipment.
-
-### Reservations use itemtype="ReservationItem"
-Reservation tracking queries `ReservationItem` linked to assets. Use `glpi_search` with this itemtype to find reservable items and their schedules.
+### Expiration tracking is a single tool call
+Use `glpi_expiration_tracker(days_ahead=N)` to check all expiring items at once across Certificate, Domain, Contract, SoftwareLicense, and hardware warranties. No need to compose multiple queries manually.
 
 ### Summary by entity requires filtering
 To get per-entity summaries, use `glpi_search` with entity criteria on each itemtype, or use `glpi_get` on `Entity` with related data.
@@ -47,6 +41,8 @@ To get per-entity summaries, use `glpi_search` with entity criteria on each item
 | `glpi_create` | Create certificates, domains, or reservation entries |
 | `glpi_update` | Update admin items |
 | `glpi_update_by_name` | Update items by exact name |
+| `glpi_expiration_tracker` | Check all expiring items across multiple itemtypes |
+| `glpi_cost_summary` | Get cost aggregation across assets, contracts, budgets |
 
 ## Commands
 
@@ -77,4 +73,10 @@ glpi_create(itemtype="Certificate", data={"name":"*.example.com","serial":"ABC12
 
 # Global search across admin types
 glpi_global_search(query="expiring", itemtypes=["Certificate","Domain","SoftwareLicense","Contract"])
+
+# Check all expiring items in the next 90 days
+glpi_expiration_tracker(days_ahead=90)
+
+# Check expiring items for a specific entity
+glpi_expiration_tracker(days_ahead=30, entity_id=5)
 ```

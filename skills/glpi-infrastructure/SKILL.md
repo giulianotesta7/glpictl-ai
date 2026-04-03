@@ -23,11 +23,11 @@ metadata:
 ### Network equipment uses specific itemtypes
 Use `itemtype="NetworkEquipment"` for switches/routers/APs. Ports use `itemtype="NetworkPort"`. Cables use `itemtype="Cable"`. VLANs use `itemtype="Vlan"`.
 
-### Racks are separate from equipment
-Racks use `itemtype="Rack"`. Equipment is placed IN racks — the relationship is on the equipment side. Use `glpi_get` with `include` to see rack placement.
+### Racks have a dedicated capacity tool
+Use `glpi_rack_capacity` to get rack utilization (total U, used U, available U, percentage) and list equipment per rack with position info. Optionally surfaces unplaced equipment.
 
-### NetworkPort links reveal topology
-A network port's `instantiation_type` and linked port fields reveal cable connections. Use `glpi_get` on a specific port to trace connections.
+### Network topology has a dedicated tracing tool
+Use `glpi_network_topology` to trace port connections (local port -> cable -> remote port -> remote device) or show all ports on a device with their connection status.
 
 ### Discover fields before searching infrastructure
 Always call `glpi_list_fields` for the specific itemtype first — network fields have unique UIDs that differ from computers.
@@ -44,6 +44,10 @@ Always call `glpi_list_fields` for the specific itemtype first — network field
 | `glpi_update_by_name` | Update equipment by exact name |
 | `glpi_delete` | Remove infrastructure items |
 | `glpi_global_search` | Search across infrastructure types at once |
+| `glpi_rack_capacity` | Get rack utilization and equipment placement |
+| `glpi_network_topology` | Trace port connections and device network topology |
+| `glpi_expiration_tracker` | Check hardware warranty expiration dates |
+| `glpi_warranty_report` | Get detailed warranty status report for hardware |
 
 ## Commands
 
@@ -74,4 +78,13 @@ glpi_update_by_name(itemtype="NetworkEquipment", name="SW-CORE-01", data={"comme
 
 # Global search across infrastructure
 glpi_global_search(query="rack-1", itemtypes=["NetworkEquipment","Rack","Cable","NetworkPort"])
+
+# Get rack utilization and equipment placement
+glpi_rack_capacity()
+
+# Trace network port connections
+glpi_network_topology(port_id=15)
+
+# Show all ports on a device with connection status
+glpi_network_topology(device_id=5, device_type="NetworkEquipment")
 ```

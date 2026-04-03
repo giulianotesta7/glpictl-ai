@@ -23,8 +23,8 @@ metadata:
 ### Users and groups are standard itemtypes
 Use `itemtype="User"` for users and `itemtype="Group"` for groups. Standard search/get/create/update applies.
 
-### Asset assignment uses glpi_user_assets
-The dedicated `glpi_user_assets` tool retrieves all assets assigned to a user by `user_id`. Use this instead of manually searching the `User` itemtype for assignments.
+### Asset assignment uses dedicated tools
+The `glpi_user_assets` tool retrieves all assets assigned to a user by `user_id`. The `glpi_group_assets` tool does the same for groups by `group_id`. Use these instead of manually searching for assignments.
 
 ### Entity switching changes query scope
 GLPI is multi-entity. The active entity determines which items are visible. Use `glpi_get` on the `Entity` itemtype to inspect entities. Entity switching via the API is session-scoped.
@@ -42,6 +42,7 @@ To find users in a group, search `Group_User` (the relationship itemtype) or use
 | `glpi_search` | Search users, groups, entities |
 | `glpi_get` | Get user/group/entity details |
 | `glpi_user_assets` | Get all assets assigned to a user |
+| `glpi_group_assets` | Get all assets assigned to a group |
 | `glpi_list_fields` | Discover fields for User, Group, Entity |
 | `glpi_create` | Create users or groups |
 | `glpi_update` | Update user or group details |
@@ -60,8 +61,11 @@ glpi_search(itemtype="User", criteria=[{"field_name":"User.name","searchtype":"c
 # Get user details
 glpi_get(itemtype="User", id=42)
 
-# Get all assets assigned to a user
+# Get assets assigned to a user
 glpi_user_assets(user_id=42)
+
+# Get assets assigned to a group
+glpi_group_assets(group_id=3)
 
 # Search groups
 glpi_search(itemtype="Group", criteria=[{"field_name":"Group.name","searchtype":"contains","value":"IT"}])
