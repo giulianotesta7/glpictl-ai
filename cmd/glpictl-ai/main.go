@@ -123,6 +123,14 @@ func main() {
 	)
 	s.AddTool(groupAssetsTool, createGroupAssetsHandler(client))
 
+	// Register glpi_rack_capacity tool
+	rackCapacityTool := mcp.NewTool("glpi_rack_capacity",
+		mcp.WithDescription("Return rack capacity and utilization report for DCIM management, with equipment positions and optional unplaced equipment listing"),
+		mcp.WithNumber("rack_id", mcp.Description("Check a specific rack by ID (default: all racks)")),
+		mcp.WithBoolean("include_unplaced", mcp.Description("Include equipment not assigned to any rack (default: false)")),
+	)
+	s.AddTool(rackCapacityTool, createRackCapacityHandler(client))
+
 	// Register glpi_expiration_tracker tool
 	expirationTrackerTool := mcp.NewTool("glpi_expiration_tracker",
 		mcp.WithDescription("Check expiration dates across multiple GLPI itemtypes (certificates, domains, contracts, software licenses, hardware warranties) and return a consolidated report"),
@@ -820,5 +828,32 @@ func createExpirationTrackerHandler(client *glpi.Client) server.ToolHandlerFunc 
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("Expiration check completed.\nDays ahead: %d\nTotal expiring items: %d\nItemtypes queried: %d",
 			result.DaysAhead, result.TotalExpiring, len(result.ByItemtype))), nil
+	}
+}
+
+// createRackCapacityHandler creates the MCP tool handler for the glpi_rack_capacity command.
+func createRackCapacityHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		rackID := 0
+		if rid, err := request.RequireInt("rack_id"); err == nil {
+			rackID = int(rid)
+		}
+
+		includeUnplaced := request.GetBool("include_unplaced", false)
+
+		tool, err := tools.NewRackCapacityTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create rack capacity tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, rackID, includeUnplaced)
+		if err != nil {
+			wrappedErr := fmt.Errorf("rack capacity: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Rack capacity report.\nRacks: %d\nTotal U: %d\nUsed U: %d\nAvailable U: %d\nOverall utilization: %.1f%%",
+			result.RackCount, result.TotalRackU, result.TotalUsedU, result.TotalAvailableU, result.OverallUtilizationPct)), nil
 	}
 }
