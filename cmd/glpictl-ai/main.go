@@ -140,6 +140,15 @@ func main() {
 	)
 	s.AddTool(expirationTrackerTool, createExpirationTrackerHandler(client))
 
+	// Register glpi_cost_summary tool
+	costSummaryTool := mcp.NewTool("glpi_cost_summary",
+		mcp.WithDescription("Return a cost summary with total purchase value by asset type, contract costs, and budget allocations"),
+		mcp.WithNumber("entity_id", mcp.Description("Restrict to this entity scope")),
+		mcp.WithBoolean("include_contracts", mcp.Description("Include contract costs (default: true)")),
+		mcp.WithBoolean("include_budgets", mcp.Description("Include budget allocations (default: true)")),
+	)
+	s.AddTool(costSummaryTool, createCostSummaryHandler(client))
+
 	// Register glpi_warranty_report tool
 	warrantyReportTool := mcp.NewTool("glpi_warranty_report",
 		mcp.WithDescription("Generate a warranty status report for hardware assets with active, expired, and expiring-soon categorization, including purchase cost aggregation"),
@@ -882,6 +891,35 @@ func createWarrantyReportHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("Warranty report completed.\nActive: %d\nExpired: %d\nExpiring soon: %d\nTotal assets: %d\nTotal purchase cost: %.2f",
 			result.Summary.Active, result.Summary.Expired, result.Summary.ExpiringSoon, result.Summary.Total, result.TotalPurchaseCost)), nil
+	}
+}
+
+// createCostSummaryHandler creates the MCP tool handler for the glpi_cost_summary command.
+func createCostSummaryHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		entityID := 0
+		if eid, err := request.RequireInt("entity_id"); err == nil {
+			entityID = int(eid)
+		}
+
+		includeContracts := request.GetBool("include_contracts", true)
+		includeBudgets := request.GetBool("include_budgets", true)
+
+		tool, err := tools.NewCostSummaryTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create cost summary tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, entityID, includeContracts, includeBudgets)
+		if err != nil {
+			wrappedErr := fmt.Errorf("cost summary: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Cost summary completed.\nAsset types: %d\nContracts: %d\nBudgets: %d\nTotal asset cost: %.2f\nTotal contract cost: %.2f\nTotal budget allocated: %.2f\nGrand total: %.2f",
+			len(result.AssetTypeCosts), len(result.ContractCosts), len(result.BudgetAllocations),
+			result.TotalAssetCost, result.TotalContractCost, result.TotalBudgetAllocated, result.GrandTotal)), nil
 	}
 }
 
