@@ -140,6 +140,15 @@ func main() {
 	)
 	s.AddTool(expirationTrackerTool, createExpirationTrackerHandler(client))
 
+	// Register glpi_warranty_report tool
+	warrantyReportTool := mcp.NewTool("glpi_warranty_report",
+		mcp.WithDescription("Generate a warranty status report for hardware assets with active, expired, and expiring-soon categorization, including purchase cost aggregation"),
+		mcp.WithNumber("days_warning", mcp.Description("Number of days ahead to flag items as expiring soon (default: 90)")),
+		mcp.WithArray("itemtypes", mcp.Description("Hardware itemtypes to check (default: Computer, Monitor, Printer, NetworkEquipment, Peripheral, Phone)"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithNumber("entity_id", mcp.Description("Restrict to this entity scope")),
+	)
+	s.AddTool(warrantyReportTool, createWarrantyReportHandler(client))
+
 	// Register glpi_create tool
 	createTool := mcp.NewTool("glpi_create",
 		mcp.WithDescription("Create a new GLPI item"),
@@ -828,6 +837,41 @@ func createExpirationTrackerHandler(client *glpi.Client) server.ToolHandlerFunc 
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("Expiration check completed.\nDays ahead: %d\nTotal expiring items: %d\nItemtypes queried: %d",
 			result.DaysAhead, result.TotalExpiring, len(result.ByItemtype))), nil
+	}
+}
+
+// createWarrantyReportHandler creates the MCP tool handler for the glpi_warranty_report command.
+func createWarrantyReportHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		daysWarning := 90
+		if dw, err := request.RequireInt("days_warning"); err == nil {
+			daysWarning = int(dw)
+		}
+
+		var itemtypes []string
+		if itVal := request.GetStringSlice("itemtypes", nil); itVal != nil {
+			itemtypes = itVal
+		}
+
+		entityID := 0
+		if eid, err := request.RequireInt("entity_id"); err == nil {
+			entityID = int(eid)
+		}
+
+		tool, err := tools.NewWarrantyReportTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create warranty report tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, daysWarning, itemtypes, entityID)
+		if err != nil {
+			wrappedErr := fmt.Errorf("warranty report: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Warranty report completed.\nActive: %d\nExpired: %d\nExpiring soon: %d\nTotal assets: %d\nTotal purchase cost: %.2f",
+			result.Summary.Active, result.Summary.Expired, result.Summary.ExpiringSoon, result.Summary.Total, result.TotalPurchaseCost)), nil
 	}
 }
 
