@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Build binaries
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          mkdir -p dist
+
+          builds=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+          )
+
+          for build in "${builds[@]}"; do
+            GOOS=${build%/*}
+            GOARCH=${build#*/}
+            EXT=""
+            [ "$GOOS" = "windows" ] && EXT=".exe"
+
+            BIN="dist/glpictl-ai-${VERSION}-${GOOS}-${GOARCH}${EXT}"
+
+            echo "Building ${BIN}..."
+            GOOS=$GOOS GOARCH=$GOARCH go build \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "$BIN" \
+              ./cmd/glpictl-ai
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > glpictl-ai-${GITHUB_REF#refs/tags/}-checksums.sha256
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
