@@ -29,13 +29,24 @@ const (
 var version = "dev"
 
 func main() {
+	// Check for subcommands first (before flag parsing)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "configure":
+			os.Exit(runConfigure(os.Args[2:]))
+		case "version":
+			printVersion()
+			os.Exit(ExitOK)
+		}
+	}
+
 	// Parse flags
 	configPath := flag.String("config", "", "Path to config file (default: ~/.config/glpictl-ai/config.toml)")
 	showVersion := flag.Bool("version", false, "Show version")
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("glpictl-ai %s\n", version)
+		printVersion()
 		os.Exit(ExitOK)
 	}
 

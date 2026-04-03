@@ -1,0 +1,95 @@
+# Spec: installer-v1
+
+## Requirements
+
+### REQ-1: Configure Command
+The `glpictl-ai configure` command MUST generate a valid TOML config file at the default XDG config path.
+
+### REQ-2: Interactive Mode
+When run without flags, the command MUST prompt the user for:
+- GLPI URL (required)
+- App Token (required)
+- User Token (required)
+- Insecure SSL (optional, default: false)
+- Timeout (optional, default: 30)
+
+### REQ-3: Non-Interactive Mode
+When run with `--url`, `--app-token`, `--user-token` flags, the command MUST NOT prompt and MUST use the provided values.
+
+### REQ-4: Connection Validation
+After gathering credentials, the command MUST test the connection by calling InitSession and then KillSession.
+
+### REQ-5: Config File Writing
+On successful validation, the command MUST write the config file to `~/.config/glpictl-ai/config.toml` (or `$XDG_CONFIG_HOME/glpictl-ai/config.toml`).
+
+### REQ-6: Error Handling
+On connection failure, the command MUST NOT write the config file and MUST display a clear error message.
+
+### REQ-7: Version Command
+The `glpictl-ai version` command MUST print the version string. If built with ldflags, print that version; otherwise print "dev".
+
+### REQ-8: Install Script (Linux/macOS)
+`install.sh` MUST:
+- Detect OS and architecture
+- Download the appropriate binary from GitHub releases
+- Place it in `/usr/local/bin/glpictl-ai`
+- Make it executable
+- Run `glpictl-ai configure`
+
+### REQ-9: Install Script (Windows)
+`install.ps1` MUST:
+- Detect architecture
+- Download the appropriate binary from GitHub releases
+- Place it in a user-accessible location (e.g., `$env:USERPROFILE\.local\bin`)
+- Add to PATH if not already present
+- Run `glpictl-ai configure`
+
+## Scenarios
+
+### Scenario 1: Interactive configure success
+- User runs `glpictl-ai configure`
+- Prompts appear for URL, app_token, user_token
+- User enters valid credentials
+- Connection test succeeds
+- Config file is written
+- Success message displayed: "Configuration saved to ~/.config/glpictl-ai/config.toml"
+
+### Scenario 2: Interactive configure failure
+- User runs `glpictl-ai configure`
+- User enters invalid credentials
+- Connection test fails with 401
+- Error message: "Authentication failed: check your tokens"
+- No config file is written
+
+### Scenario 3: Non-interactive configure
+- User runs `glpictl-ai configure --url http://glpi.example.com/apirest.php --app-token abc123 --user-token xyz789`
+- No prompts appear
+- Connection test runs
+- On success: config written, success message
+- On failure: error message, exit code 1
+
+### Scenario 4: Configure with env vars
+- User sets GLPICTL_GLPI_URL, GLPICTL_GLPI_APP_TOKEN, GLPICTL_GLPI_USER_TOKEN
+- User runs `glpictl-ai configure`
+- Env var values are used as defaults in interactive mode
+- Connection test runs with those values
+
+### Scenario 5: Version command
+- User runs `glpictl-ai version`
+- Output: "glpictl-ai 1.0.0" (or "glpictl-ai dev" if not built with ldflags)
+
+### Scenario 6: Install script
+- User runs `curl -fsSL https://.../install.sh | bash`
+- Script detects linux/amd64
+- Downloads binary from latest GitHub release
+- Installs to /usr/local/bin
+- Runs configure interactively
+
+### Scenario 7: XDG_CONFIG_HOME override
+- User has XDG_CONFIG_HOME set to /custom/config
+- Config file is written to /custom/config/glpictl-ai/config.toml
+
+### Scenario 8: Config file already exists
+- User runs `glpictl-ai configure` when config already exists
+- Command asks for confirmation before overwriting
+- If confirmed, overwrites; if not, exits without changes
