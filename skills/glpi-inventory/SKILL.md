@@ -48,6 +48,13 @@ Use `glpi_get` with `include` to request related details (software, ports, contr
 | `glpi_delete` | Delete an item by ID |
 | `glpi_summary` | Dashboard with item counts by type |
 | `glpi_user_assets` | Get all assets assigned to a specific user |
+| `glpi_group_assets` | Get all assets assigned to a specific group |
+| `glpi_license_compliance` | Get software license compliance report |
+| `glpi_expiration_tracker` | Check expiration dates across multiple itemtypes |
+| `glpi_rack_capacity` | Get rack utilization and equipment placement |
+| `glpi_network_topology` | Trace network port connections and device topology |
+| `glpi_warranty_report` | Get warranty status report for hardware assets |
+| `glpi_cost_summary` | Get cost aggregation across assets, contracts, budgets |
 
 ## Commands
 
@@ -75,4 +82,25 @@ glpi_search(itemtype="User", criteria=[{"field_name":"User.name","searchtype":"c
 
 # Get assets assigned to a user
 glpi_user_assets(user_id=42)
+
+# Get assets assigned to a group
+glpi_group_assets(group_id=3)
+
+# Check license compliance for software
+glpi_license_compliance(software_id=10)
+
+# Check all expiring items in the next 90 days
+glpi_expiration_tracker(days_ahead=90)
+
+# Get rack utilization
+glpi_rack_capacity()
+
+# Trace network port connections
+glpi_network_topology(port_id=15)
+
+# Get warranty status for hardware
+glpi_warranty_report()
+
+# Get cost summary
+glpi_cost_summary()
 ```

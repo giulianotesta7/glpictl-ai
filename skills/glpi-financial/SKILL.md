@@ -29,8 +29,14 @@ Purchase cost, warranty end date, and budget fields are on the asset itemtype (C
 ### Budgets use itemtype="Budget"
 Budget tracking is separate from contracts. Use `glpi_search(itemtype="Budget")` to query budgets and link them to assets.
 
-### Expiration tracking requires date filtering
-To find expiring contracts/warranties: search with date-range criteria on `Contract.end_date` or asset `warranty_date` fields. Use `glpi_list_fields` to find the exact field UID.
+### Warranty reporting is a single tool call
+Use `glpi_warranty_report` to get warranty status (active/expired/expiring_soon) for all hardware assets. No need to compute warranty dates manually.
+
+### Cost summary aggregates financial data
+Use `glpi_cost_summary` to get purchase costs by asset type, contract costs, and budget allocations in a single call.
+
+### Expiration tracking is a single tool call
+Use `glpi_expiration_tracker` to check all expiring items (contracts, warranties, certificates) across multiple itemtypes at once.
 
 ### Discover fields per itemtype
 Financial fields have unique UIDs. Always call `glpi_list_fields` for Contract, Budget, or the specific asset type before querying.
@@ -47,6 +53,9 @@ Financial fields have unique UIDs. Always call `glpi_list_fields` for Contract, 
 | `glpi_update_by_name` | Update contract by exact name |
 | `glpi_delete` | Remove contracts or budgets |
 | `glpi_global_search` | Search across financial types at once |
+| `glpi_warranty_report` | Get warranty status report for all hardware assets |
+| `glpi_cost_summary` | Get cost aggregation across assets, contracts, budgets |
+| `glpi_expiration_tracker` | Check contract and warranty expiration dates |
 
 ## Commands
 
@@ -77,4 +86,13 @@ glpi_search(itemtype="Contract", criteria=[{"field_name":"Contract.end_date","se
 
 # Global search across financial types
 glpi_global_search(query="warranty", itemtypes=["Contract","Budget"])
+
+# Get warranty status for all hardware assets
+glpi_warranty_report()
+
+# Get cost summary across all asset types
+glpi_cost_summary()
+
+# Check all expiring contracts and warranties
+glpi_expiration_tracker(days_ahead=90, itemtypes=["Contract","Computer","NetworkEquipment"])
 ```
