@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -66,6 +68,20 @@ func main() {
 		slog.Error("Error creating GLPI client", "error", err)
 		os.Exit(ExitError)
 	}
+
+	// KillSession cleanup is guarded by sync.Once to prevent double calls
+	// when both the signal handler and the defer in main() attempt cleanup.
+	var killOnce sync.Once
+
+	defer func() {
+		killOnce.Do(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := client.KillSession(ctx); err != nil {
+				slog.Warn("Error killing GLPI session during shutdown", "error", err)
+			}
+		})
+	}()
 
 	// Create MCP server
 	s := server.NewMCPServer(
@@ -228,18 +244,31 @@ func main() {
 	)
 	s.AddTool(networkTopologyTool, createNetworkTopologyHandler(client))
 
-	go func() {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// Set up signal handling BEFORE launching the goroutine to avoid race conditions.
+	// SIGTERM does not exist on Windows, so conditionally include it.
+	sigChan := make(chan os.Signal, 1)
+	signals := []os.Signal{syscall.SIGINT}
+	if runtime.GOOS != "windows" {
+		signals = append(signals, syscall.SIGTERM)
+	}
+	signal.Notify(sigChan, signals...)
 
+	go func() {
 		<-sigChan
 		slog.Info("Shutting down...")
-		// Clean up GLPI session with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := client.KillSession(ctx); err != nil {
-			slog.Error("Error killing GLPI session", "error", err)
-		}
+		// NOTE: This signal handler is the ONLY cleanup path on signal.
+		// os.Exit bypasses all defer statements, so the defer KillSession
+		// at the top of main() is dead code for this path.
+		// A full refactor to channel-based graceful shutdown would unify
+		// both paths, but for now the signal handler's KillSession is
+		// the sole cleanup mechanism here.
+		killOnce.Do(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := client.KillSession(ctx); err != nil {
+				slog.Error("Error killing GLPI session", "error", err)
+			}
+		})
 		os.Exit(ExitOK)
 	}()
 
@@ -756,8 +785,12 @@ func createLicenseComplianceHandler(client *glpi.Client) server.ToolHandlerFunc 
 		}
 
 		entityID := 0
-		if eid, err := request.RequireInt("entity_id"); err == nil {
-			entityID = int(eid)
+		if _, ok := request.GetArguments()["entity_id"]; ok {
+			var err error
+			entityID, err = request.RequireInt("entity_id")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+			}
 		}
 
 		tool, err := tools.NewLicenseComplianceTool(client)
@@ -849,8 +882,12 @@ func createExpirationTrackerHandler(client *glpi.Client) server.ToolHandlerFunc 
 		}
 
 		entityID := 0
-		if eid, err := request.RequireInt("entity_id"); err == nil {
-			entityID = int(eid)
+		if _, ok := request.GetArguments()["entity_id"]; ok {
+			var err error
+			entityID, err = request.RequireInt("entity_id")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+			}
 		}
 
 		tool, err := tools.NewExpirationTrackerTool(client)
@@ -874,7 +911,12 @@ func createExpirationTrackerHandler(client *glpi.Client) server.ToolHandlerFunc 
 func createWarrantyReportHandler(client *glpi.Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		daysWarning := 90
-		if dw, err := request.RequireInt("days_warning"); err == nil {
+		if _, ok := request.GetArguments()["days_warning"]; ok {
+			var err error
+			dw, err := request.RequireInt("days_warning")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("days_warning must be a number: %v", err)), nil
+			}
 			daysWarning = int(dw)
 		}
 
@@ -884,8 +926,12 @@ func createWarrantyReportHandler(client *glpi.Client) server.ToolHandlerFunc {
 		}
 
 		entityID := 0
-		if eid, err := request.RequireInt("entity_id"); err == nil {
-			entityID = int(eid)
+		if _, ok := request.GetArguments()["entity_id"]; ok {
+			var err error
+			entityID, err = request.RequireInt("entity_id")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+			}
 		}
 
 		tool, err := tools.NewWarrantyReportTool(client)
@@ -909,8 +955,12 @@ func createWarrantyReportHandler(client *glpi.Client) server.ToolHandlerFunc {
 func createCostSummaryHandler(client *glpi.Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		entityID := 0
-		if eid, err := request.RequireInt("entity_id"); err == nil {
-			entityID = int(eid)
+		if _, ok := request.GetArguments()["entity_id"]; ok {
+			var err error
+			entityID, err = request.RequireInt("entity_id")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+			}
 		}
 
 		includeContracts := request.GetBool("include_contracts", true)
@@ -938,8 +988,12 @@ func createCostSummaryHandler(client *glpi.Client) server.ToolHandlerFunc {
 func createRackCapacityHandler(client *glpi.Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		rackID := 0
-		if rid, err := request.RequireInt("rack_id"); err == nil {
-			rackID = int(rid)
+		if _, ok := request.GetArguments()["rack_id"]; ok {
+			var err error
+			rackID, err = request.RequireInt("rack_id")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("rack_id must be a number: %v", err)), nil
+			}
 		}
 
 		includeUnplaced := request.GetBool("include_unplaced", false)
@@ -965,13 +1019,21 @@ func createRackCapacityHandler(client *glpi.Client) server.ToolHandlerFunc {
 func createNetworkTopologyHandler(client *glpi.Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		portID := 0
-		if pid, err := request.RequireInt("port_id"); err == nil {
-			portID = int(pid)
+		if _, ok := request.GetArguments()["port_id"]; ok {
+			var err error
+			portID, err = request.RequireInt("port_id")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("port_id must be a number: %v", err)), nil
+			}
 		}
 
 		deviceID := 0
-		if did, err := request.RequireInt("device_id"); err == nil {
-			deviceID = int(did)
+		if _, ok := request.GetArguments()["device_id"]; ok {
+			var err error
+			deviceID, err = request.RequireInt("device_id")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("device_id must be a number: %v", err)), nil
+			}
 		}
 
 		deviceType := request.GetString("device_type", "")

@@ -12,6 +12,11 @@ REPO="giulianotesta7/glpictl-ai"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="glpictl-ai"
 
+# Global temp files — trap set once at top-level scope so it covers ALL exit paths
+DOWNLOAD_FILE=""
+CHECKSUM_FILE=""
+trap 'rm -f "$DOWNLOAD_FILE" "$CHECKSUM_FILE"' EXIT
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -95,33 +100,91 @@ download_binary() {
 
     info "Downloading ${BINARY_NAME} ${version} for ${os}/${arch}..."
 
+    # Create a private temp file to avoid TOCTOU race in world-writable /tmp
+    DOWNLOAD_FILE=$(mktemp "/tmp/${BINARY_NAME}.XXXXXX")
+
     # Try the versioned binary name first, fall back to simple name
-    if ! curl -fsSL --fail "${binary_url}" -o "/tmp/${BINARY_NAME}" 2>/dev/null; then
+    local primary_url="$binary_url"
+    if ! curl -fsSL --fail "${binary_url}" -o "$DOWNLOAD_FILE" 2>/dev/null; then
         binary_url="https://github.com/${REPO}/releases/download/${version}/${BINARY_NAME}-${os}-${arch}"
-        if ! curl -fsSL --fail "${binary_url}" -o "/tmp/${BINARY_NAME}" 2>/dev/null; then
+        if ! curl -fsSL --fail "${binary_url}" -o "$DOWNLOAD_FILE" 2>/dev/null; then
             error "Failed to download binary from GitHub releases"
             error "Tried URLs:"
+            error "  ${primary_url}"
             error "  ${binary_url}"
             exit 1
         fi
     fi
+
+    # Verify checksum if available (graceful: warn but continue if missing)
+    verify_checksum "$DOWNLOAD_FILE" "$version"
 }
 
 # Install binary
 install_binary() {
     info "Installing to ${INSTALL_DIR}/${BINARY_NAME}..."
 
-    mv "/tmp/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+    mv "$DOWNLOAD_FILE" "${INSTALL_DIR}/${BINARY_NAME}"
     chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
     info "Installation complete!"
+}
+
+# Verify checksum if available (graceful: warn but continue if missing)
+verify_checksum() {
+    local file="$1"
+    local version="$2"
+    local checksum_url="https://github.com/${REPO}/releases/download/${version}/${BINARY_NAME}-${version}-${OS}-${ARCH}.sha256"
+
+    # Use mktemp for the checksum file to avoid TOCTOU race in /tmp
+    CHECKSUM_FILE=$(mktemp "/tmp/${BINARY_NAME}.checksum.XXXXXX")
+
+    # Fall back to simple name for checksum file
+    if ! curl -fsSL --fail "${checksum_url}" -o "$CHECKSUM_FILE" 2>/dev/null; then
+        checksum_url="https://github.com/${REPO}/releases/download/${version}/${BINARY_NAME}-${OS}-${ARCH}.sha256"
+        if ! curl -fsSL --fail "${checksum_url}" -o "$CHECKSUM_FILE" 2>/dev/null; then
+            warn "No checksum file found at release — skipping verification"
+            warn "For full supply-chain security, publish .sha256 checksums with releases"
+            rm -f "$CHECKSUM_FILE"
+            CHECKSUM_FILE=""
+            return 0
+        fi
+    fi
+
+    info "Verifying checksum..."
+    expected_hash=$(grep -F -m1 "${BINARY_NAME}-${version}-${OS}-${ARCH}" "$CHECKSUM_FILE" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+    if [[ -z "$expected_hash" ]]; then
+        # Fall back to simple binary name if versioned name not found
+        expected_hash=$(grep -F -m1 "${BINARY_NAME}-${OS}-${ARCH}" "$CHECKSUM_FILE" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+    fi
+
+    # Use OS-appropriate hash command
+    if [[ "$OS" == "linux" ]]; then
+        actual_hash=$(sha256sum "$file" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+    else
+        actual_hash=$(shasum -a 256 "$file" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+    fi
+
+    rm -f "$CHECKSUM_FILE"
+    CHECKSUM_FILE=""
+    if [[ "$expected_hash" != "$actual_hash" ]]; then
+        error "Checksum verification FAILED — binary may be tampered with"
+        exit 1
+    fi
+    info "Checksum verification passed!"
 }
 
 # Run configure
 run_configure() {
     info "Running configuration..."
     echo ""
-    "${INSTALL_DIR}/${BINARY_NAME}" configure
+    # If running under sudo, run configure as the original user so config
+    # is saved to the user's ~/.config/ instead of /root/.config/
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        sudo -u "$SUDO_USER" "${INSTALL_DIR}/${BINARY_NAME}" configure
+    else
+        "${INSTALL_DIR}/${BINARY_NAME}" configure
+    fi
 }
 
 # Main
@@ -135,6 +198,10 @@ main() {
 
     OS=$(detect_os)
     ARCH=$(detect_arch)
+
+    # Global temp files are declared and trapped at top-level scope.
+    DOWNLOAD_FILE=""
+    CHECKSUM_FILE=""
 
     info "Detected: ${OS}/${ARCH}"
 

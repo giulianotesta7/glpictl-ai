@@ -74,15 +74,15 @@ func validate(cfg *Config) error {
 	if cfg.GLPI.UserToken == "" {
 		return NewMissingRequiredError("glpi.user_token")
 	}
-	if cfg.Server.Timeout < 0 {
+	if cfg.Server.Timeout <= 0 {
 		return fmt.Errorf("config: server.timeout must be positive, got %d", cfg.Server.Timeout)
 	}
 	return nil
 }
 
-// getConfigPath returns the path to the config file.
+// GetConfigPath returns the path to the config file.
 // If path is empty, it uses XDG_CONFIG_HOME/glpictl-ai/config.toml.
-func getConfigPath(path string) (string, error) {
+func GetConfigPath(path string) (string, error) {
 	if path != "" {
 		return path, nil
 	}
@@ -100,6 +100,11 @@ func getConfigPath(path string) (string, error) {
 	return filepath.Join(xdgConfigHome, "glpictl-ai", "config.toml"), nil
 }
 
+// getConfigPath is the internal alias used by Load and LoadWithOverrides.
+func getConfigPath(path string) (string, error) {
+	return GetConfigPath(path)
+}
+
 // Load reads the config file from the given path and applies env vars.
 // Priority: env vars > TOML file > defaults.
 // If path is empty, it uses XDG_CONFIG_HOME/glpictl-ai/config.toml.
@@ -110,8 +115,11 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Check if file exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, ErrNotFound
+	if _, err := os.Stat(configPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("cannot access config file %s: %w", configPath, err)
 	}
 
 	cfg := defaultConfig()
@@ -153,7 +161,12 @@ func LoadWithOverrides(path string, overrides *CLIOverrides) (*Config, error) {
 	cfg := defaultConfig()
 
 	// Check if file exists
-	if _, err := os.Stat(configPath); err == nil {
+	if _, err := os.Stat(configPath); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("cannot access config file %s: %w", configPath, err)
+		}
+		// File doesn't exist — proceed with defaults + env + CLI
+	} else {
 		if _, err := toml.DecodeFile(configPath, cfg); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidType, err)
 		}
@@ -229,8 +242,13 @@ func applyCLIOverrides(cfg *Config, overrides *CLIOverrides) {
 // If path is empty, it uses XDG_CONFIG_HOME/glpictl-ai/config.toml.
 // Parent directories are created if they don't exist.
 // The file is written with 0600 permissions to protect sensitive tokens.
+// Uses atomic write (temp file + rename) to prevent partial writes.
 func Save(cfg *Config, path string) error {
-	configPath, err := getConfigPath(path)
+	if err := validate(cfg); err != nil {
+		return fmt.Errorf("cannot save invalid config: %w", err)
+	}
+
+	configPath, err := GetConfigPath(path)
 	if err != nil {
 		return err
 	}
@@ -248,11 +266,40 @@ func Save(cfg *Config, path string) error {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
 
-	// Write file with restricted permissions
-	if err := os.WriteFile(configPath, buf.Bytes(), 0600); err != nil {
-		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	// Atomic write: write to temp file in the same directory, then rename
+	tmpFile, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+
+	// Ensure cleanup on failure
+	success := false
+	defer func() {
+		if !success {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpFile.Write(buf.Bytes()); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write temp config: %w", err)
 	}
 
+	if err := tmpFile.Chmod(0600); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to set permissions on temp file: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	if err := atomicRename(tmpPath, configPath); err != nil {
+		return fmt.Errorf("failed to atomically replace config file: %w", err)
+	}
+
+	success = true
 	return nil
 }
 
@@ -269,4 +316,19 @@ func IsErrMissingRequired(err error) bool {
 // IsErrInvalidType returns true if err is ErrInvalidType.
 func IsErrInvalidType(err error) bool {
 	return errors.Is(err, ErrInvalidType)
+}
+
+// atomicRename renames oldPath to newPath, handling Windows where
+// os.Rename cannot overwrite an existing file.
+func atomicRename(oldPath, newPath string) error {
+	err := os.Rename(oldPath, newPath)
+	if err == nil {
+		return nil
+	}
+	// On Windows, rename fails if newPath already exists.
+	// Remove the destination and retry.
+	if removeErr := os.Remove(newPath); removeErr != nil {
+		return fmt.Errorf("rename failed (%w) and cleanup of destination also failed: %w", err, removeErr)
+	}
+	return os.Rename(oldPath, newPath)
 }
