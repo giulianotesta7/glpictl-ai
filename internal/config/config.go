@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -222,6 +223,37 @@ func applyCLIOverrides(cfg *Config, overrides *CLIOverrides) {
 	if overrides.InsecureSSL != nil {
 		cfg.GLPI.InsecureSSL = *overrides.InsecureSSL
 	}
+}
+
+// Save writes the config to the specified path as TOML.
+// If path is empty, it uses XDG_CONFIG_HOME/glpictl-ai/config.toml.
+// Parent directories are created if they don't exist.
+// The file is written with 0600 permissions to protect sensitive tokens.
+func Save(cfg *Config, path string) error {
+	configPath, err := getConfigPath(path)
+	if err != nil {
+		return err
+	}
+
+	// Ensure parent directory exists
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("cannot create config directory %s: %w", dir, err)
+	}
+
+	// Encode config to TOML
+	var buf bytes.Buffer
+	encoder := toml.NewEncoder(&buf)
+	if err := encoder.Encode(cfg); err != nil {
+		return fmt.Errorf("failed to encode config: %w", err)
+	}
+
+	// Write file with restricted permissions
+	if err := os.WriteFile(configPath, buf.Bytes(), 0600); err != nil {
+		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	}
+
+	return nil
 }
 
 // IsErrNotFound returns true if err is ErrNotFound.

@@ -1,0 +1,138 @@
+# Design: installer-v1
+
+## Architecture
+
+```
+cmd/glpictl-ai/
+├── main.go          # Modified: subcommand routing
+├── configure.go     # NEW: configure command
+└── version.go       # NEW: version command (standalone subcommand)
+
+internal/config/
+└── config.go        # Modified: add Save() function
+
+install.sh           # NEW: Linux/macOS installer
+install.ps1          # NEW: Windows installer
+```
+
+## Subcommand Routing (main.go)
+
+The `main()` function will use `flag.Arg(0)` to detect subcommands:
+- If no subcommand: run MCP server (current behavior)
+- If "configure": run configure command
+- If "version": print version and exit
+
+The existing `-version` flag is kept for backward compatibility.
+
+```go
+func main() {
+    // Check for subcommands first
+    if len(os.Args) > 1 {
+        switch os.Args[1] {
+        case "configure":
+            os.Exit(runConfigure(os.Args[2:]))
+        case "version":
+            fmt.Printf("glpictl-ai %s\n", version)
+            os.Exit(0)
+        }
+    }
+    // ... existing MCP server code
+}
+```
+
+## Configure Command (configure.go)
+
+### Structure
+```go
+func runConfigure(args []string) int
+```
+
+Returns exit code: 0 on success, 1 on error.
+
+### Flow
+1. Parse flags: `--url`, `--app-token`, `--user-token`, `--insecure-ssl`, `--timeout`
+2. If flags not provided, prompt interactively (use env vars as defaults)
+3. Build a temporary config
+4. Test connection: create GLPI client → InitSession → KillSession
+5. On success: write config file via `config.Save()`
+6. On failure: print error, return 1
+
+### Interactive Prompts
+Use `bufio.Scanner(os.Stdin)` for input. Each prompt shows the current default (from env vars).
+
+```
+GLPI URL (default: from env or empty): 
+App Token (default: from env or empty): 
+User Token (default: from env or empty): 
+Insecure SSL (y/N, default: false): 
+Timeout seconds (default: 30): 
+```
+
+### Connection Test
+Reuse `glpi.NewClient()` and `client.InitSession()` + `client.KillSession()` from existing code. This validates:
+- URL is reachable
+- Tokens are valid
+- API responds correctly
+
+### Config Save
+Add `Save(cfg *Config, path string) error` to `internal/config/config.go`:
+- Creates parent directories if needed
+- Uses `github.com/BurntSushi/toml` encoder
+- Writes with 0600 permissions (tokens are sensitive)
+
+## Version Command (version.go)
+
+Simple standalone file that prints version. The `version` variable is already defined in main.go and set via ldflags. The version.go file will just provide a `runVersion()` function or the logic can stay in main.go.
+
+Actually, since `version` is a package-level var in main.go, the version command logic stays in main.go. The version.go file will contain helper functions if needed (e.g., formatted version output with build info).
+
+## Install Scripts
+
+### install.sh
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Detect OS and arch
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64) ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+esac
+
+# Get latest release from GitHub API
+LATEST_URL=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | ...)
+BINARY_URL="..."
+
+# Download and install
+curl -fsSL "$BINARY_URL" -o /tmp/glpictl-ai
+sudo mv /tmp/glpictl-ai /usr/local/bin/glpictl-ai
+sudo chmod +x /usr/local/bin/glpictl-ai
+
+# Run configure
+glpictl-ai configure
+```
+
+### install.ps1
+Similar flow using `Invoke-WebRequest` and `$env:USERPROFILE\.local\bin`.
+
+## Error Handling
+
+All errors use `fmt.Errorf` with context. Exit codes:
+- 0: Success
+- 1: General error (connection failed, invalid input)
+- 2: Config error (cannot write file, permissions)
+
+## Security Considerations
+
+- Config file written with 0600 permissions
+- Tokens are never logged or echoed
+- Install scripts verify downloads (future: checksums)
+
+## Decisions
+
+1. **No external CLI library**: Use stdlib `flag` to keep dependencies minimal
+2. **Reuse GLPI client for testing**: Don't duplicate HTTP logic; use existing `NewClient` + `InitSession` + `KillSession`
+3. **Config.Save() in config package**: Keeps config I/O centralized
+4. **Subcommands via os.Args[1]**: Simple, no dependency, matches Go stdlib patterns

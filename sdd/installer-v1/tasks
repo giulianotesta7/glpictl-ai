@@ -1,0 +1,27 @@
+# Tasks: installer-v1
+
+## Phase 1: Config Save Function
+- [x] 1.1 Add `Save(cfg *Config, path string) error` to `internal/config/config.go` — creates parent dirs, writes TOML with 0600 permissions
+
+## Phase 2: Configure Command
+- [x] 2.1 Create `cmd/glpictl-ai/configure.go` with `runConfigure(args []string) int` — flag parsing, interactive prompts, connection test, config save
+- [x] 2.2 Add `--url`, `--app-token`, `--user-token`, `--insecure-ssl`, `--timeout` flags
+- [x] 2.3 Implement interactive prompting with env var defaults
+- [x] 2.4 Implement connection validation using glpi.NewClient + InitSession + KillSession
+- [x] 2.5 Handle overwrite confirmation when config already exists
+
+## Phase 3: Version Command
+- [x] 3.1 Add `version` subcommand handling in `cmd/glpictl-ai/main.go`
+- [x] 3.2 Create `cmd/glpictl-ai/version.go` with version output helper
+
+## Phase 4: Subcommand Routing
+- [x] 4.1 Modify `cmd/glpictl-ai/main.go` to route subcommands before MCP server startup
+
+## Phase 5: Install Scripts
+- [x] 5.1 Create `install.sh` for Linux/macOS — detect OS/arch, download, install, configure
+- [x] 5.2 Create `install.ps1` for Windows — detect arch, download, install, configure
+
+## Phase 6: Verification
+- [x] 6.1 Run `go vet ./...`
+- [x] 6.2 Run `go test -race ./...`
+- [x] 6.3 Run `shellcheck install.sh`

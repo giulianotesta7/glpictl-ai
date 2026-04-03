@@ -1,0 +1,52 @@
+# Change Proposal: installer-v1
+
+## Intent
+
+Provide users with an easy way to configure and install glpictl-ai, eliminating the manual config file creation step.
+
+## Problem
+
+Currently, users must manually create `~/.config/glpictl-ai/config.toml` with the correct TOML format before they can use glpictl-ai. There is no CLI command to help with this, no connection validation, and no installation scripts for downloading the binary from GitHub releases.
+
+## Proposed Solution
+
+1. **`glpictl-ai configure`** — CLI subcommand that generates the config file
+   - Interactive mode: prompts for GLPI URL, app_token, user_token
+   - Non-interactive mode: via `--url`, `--app-token`, `--user-token` flags or env vars
+   - Validates connection by calling InitSession + KillSession
+   - Writes config to `~/.config/glpictl-ai/config.toml` (respects XDG_CONFIG_HOME)
+   - Shows clear success/failure messages
+
+2. **`glpictl-ai version`** — Prints version from build-time ldflags or "dev"
+
+3. **`install.sh`** — Bash script for Linux/macOS: downloads binary from GitHub releases, places in `/usr/local/bin`, runs configure
+
+4. **`install.ps1`** — PowerShell script for Windows: same functionality
+
+## Scope
+
+### In scope
+- New file: `cmd/glpictl-ai/configure.go`
+- New file: `cmd/glpictl-ai/version.go`
+- New file: `install.sh`
+- New file: `install.ps1`
+- Modified file: `cmd/glpictl-ai/main.go` (subcommand parsing)
+- New function in `internal/config/config.go`: `Save()` to write TOML config
+
+### Out of scope
+- TUI installer (future)
+- Multiple config profiles
+- Proxy configuration
+- TLS certificate management beyond `insecure_ssl` flag
+
+## Approach
+
+- Use only Go stdlib for CLI parsing (`flag` package) — no external CLI library
+- Reuse existing `internal/config/config.go` types and `internal/glpi/client.go` for connection testing
+- Add `Save()` function to config package to write TOML files
+- Install scripts use curl/wget (Linux/macOS) and Invoke-WebRequest (Windows)
+
+## Risks
+
+- GLPI API may be unreachable during configure — handled with clear error messages and retry suggestion
+- Token input on terminal may be visible — acceptable for v1, can add masked input later
