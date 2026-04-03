@@ -198,6 +198,16 @@ func main() {
 	)
 	s.AddTool(deleteTool, createDeleteHandler(client))
 
+	// Register glpi_network_topology tool
+	networkTopologyTool := mcp.NewTool("glpi_network_topology",
+		mcp.WithDescription("Trace network port connections and cable topology in GLPI inventory, with optional VLAN info"),
+		mcp.WithNumber("port_id", mcp.Description("Trace a specific port by ID (use port_id OR device_id+device_type)")),
+		mcp.WithNumber("device_id", mcp.Description("Show all ports for a device (use with device_type)")),
+		mcp.WithString("device_type", mcp.Description("GLPI itemtype of the device (e.g., Computer, NetworkEquipment)")),
+		mcp.WithBoolean("show_vlans", mcp.Description("Include VLAN assignments on ports (default: false)")),
+	)
+	s.AddTool(networkTopologyTool, createNetworkTopologyHandler(client))
+
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -899,5 +909,37 @@ func createRackCapacityHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultStructured(result, fmt.Sprintf("Rack capacity report.\nRacks: %d\nTotal U: %d\nUsed U: %d\nAvailable U: %d\nOverall utilization: %.1f%%",
 			result.RackCount, result.TotalRackU, result.TotalUsedU, result.TotalAvailableU, result.OverallUtilizationPct)), nil
+	}
+}
+
+// createNetworkTopologyHandler creates the MCP tool handler for the glpi_network_topology command.
+func createNetworkTopologyHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		portID := 0
+		if pid, err := request.RequireInt("port_id"); err == nil {
+			portID = int(pid)
+		}
+
+		deviceID := 0
+		if did, err := request.RequireInt("device_id"); err == nil {
+			deviceID = int(did)
+		}
+
+		deviceType := request.GetString("device_type", "")
+		showVLANs := request.GetBool("show_vlans", false)
+
+		tool, err := tools.NewNetworkTopologyTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create network topology tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, portID, deviceID, deviceType, showVLANs)
+		if err != nil {
+			wrappedErr := fmt.Errorf("network topology: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, tools.BuildTopologyText(result)), nil
 	}
 }
