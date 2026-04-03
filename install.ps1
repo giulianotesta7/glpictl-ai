@@ -60,7 +60,12 @@ function Download-Binary {
 
     Write-Info "Downloading $BinaryName $Version for windows/$Arch..."
 
-    $tempFile = Join-Path $env:TEMP $BinaryName
+    # Fallback if $env:TEMP is null or empty
+    $tempDir = $env:TEMP
+    if ([string]::IsNullOrEmpty($tempDir)) {
+        $tempDir = [System.IO.Path]::GetTempPath()
+    }
+    $tempFile = [System.IO.Path]::GetTempFileName()
 
     try {
         Invoke-WebRequest -Uri $binaryUrl -OutFile $tempFile -UseBasicParsing
@@ -81,6 +86,46 @@ function Download-Binary {
     return $tempFile
 }
 
+function Verify-Checksum {
+    param(
+        [string]$FilePath,
+        [string]$Version,
+        [string]$Arch
+    )
+
+    $checksumUrl = "https://github.com/$Repo/releases/download/$Version/$BinaryName-$Version-windows-$Arch.sha256"
+    $fallbackUrl = "https://github.com/$Repo/releases/download/$Version/$BinaryName-windows-$Arch.sha256"
+
+    # Use a secure temp file for the checksum to avoid predictable naming
+    $script:tempChecksum = [System.IO.Path]::GetTempFileName()
+
+    try {
+        Invoke-WebRequest -Uri $checksumUrl -OutFile $script:tempChecksum -UseBasicParsing
+    }
+    catch {
+        try {
+            Invoke-WebRequest -Uri $fallbackUrl -OutFile $script:tempChecksum -UseBasicParsing
+        }
+        catch {
+            Write-Warn "No checksum file found at release — skipping verification"
+            Write-Warn "For full supply-chain security, publish .sha256 checksums with releases"
+            return
+        }
+    }
+
+    Write-Info "Verifying checksum..."
+    $expectedHash = ((Get-Content $script:tempChecksum -Raw).Split(' ')[0]).Trim()
+    $actualHash = (Get-FileHash $FilePath -Algorithm SHA256).Hash
+
+    Remove-Item $script:tempChecksum -Force -ErrorAction SilentlyContinue
+
+    if ($expectedHash -ine $actualHash) {
+        Write-Err "Checksum verification FAILED — binary may be tampered with"
+        exit 1
+    }
+    Write-Info "Checksum verification passed!"
+}
+
 function Install-Binary {
     param([string]$SourceFile)
 
@@ -96,11 +141,24 @@ function Install-Binary {
     Write-Info "Installing to $destFile..."
     Copy-Item -Path $SourceFile -Destination $destFile -Force
 
-    # Add to PATH if not already present
+    # Add to PATH if not already present (exact match, not substring)
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($currentPath -notlike "*$installDir*") {
+    $pathEntries = $currentPath -split ';' | ForEach-Object { $_.Trim() }
+    $alreadyInPath = $false
+    foreach ($entry in $pathEntries) {
+        if ($entry -ieq $installDir) {
+            $alreadyInPath = $true
+            break
+        }
+    }
+    if (-not $alreadyInPath) {
         Write-Info "Adding $installDir to user PATH..."
-        [Environment]::SetEnvironmentVariable("Path", "$currentPath;$installDir", "User")
+        if ([string]::IsNullOrEmpty($currentPath)) {
+            $newPath = $installDir
+        } else {
+            $newPath = "$currentPath;$installDir"
+        }
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
         $env:Path = "$env:Path;$installDir"
     }
 
@@ -131,8 +189,22 @@ Write-Info "Detected architecture: $arch"
 $version = Get-LatestVersion
 Write-Info "Latest version: $version"
 
-$tempFile = Download-Binary -Version $version -Arch $arch
-$binaryPath = Install-Binary -SourceFile $tempFile
+$tempFile = $null
+$tempChecksum = $null
+try {
+    $tempFile = Download-Binary -Version $version -Arch $arch
+    Verify-Checksum -FilePath $tempFile -Version $version -Arch $arch
+    $binaryPath = Install-Binary -SourceFile $tempFile
 
-Write-Host ""
-Run-Configure -BinaryPath $binaryPath
+    Write-Host ""
+    Run-Configure -BinaryPath $binaryPath
+}
+finally {
+    # Clean up temp files on any exit path (success, failure, or exception)
+    if ($tempFile -and (Test-Path $tempFile)) {
+        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+    }
+    if ($tempChecksum -and (Test-Path $tempChecksum)) {
+        Remove-Item $tempChecksum -Force -ErrorAction SilentlyContinue
+    }
+}

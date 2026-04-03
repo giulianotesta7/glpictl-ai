@@ -6,12 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/giulianotesta7/glpictl-ai/internal/config"
 	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
+	"golang.org/x/term"
 )
 
 // runConfigure handles the "configure" subcommand.
@@ -28,34 +29,71 @@ func runConfigure(args []string) int {
 	// Gather values with priority: flags > env vars > interactive prompts
 	nonInteractive := *url != "" || *appToken != "" || *userToken != ""
 
+	// Single scanner for all stdin reads — avoids losing buffered state.
+	scanner := bufio.NewScanner(os.Stdin)
+
 	glpiURL := firstNonEmpty(*url, os.Getenv("GLPICTL_GLPI_URL"))
 	glpiAppToken := firstNonEmpty(*appToken, os.Getenv("GLPICTL_GLPI_APP_TOKEN"))
 	glpiUserToken := firstNonEmpty(*userToken, os.Getenv("GLPICTL_GLPI_USER_TOKEN"))
 
 	if !nonInteractive {
 		// Interactive mode: prompt for missing values
-		scanner := bufio.NewScanner(os.Stdin)
 
 		if glpiURL == "" {
-			glpiURL = prompt(scanner, "GLPI URL", "http://localhost/apirest.php")
+			val, err := prompt(scanner, "GLPI URL", "http://localhost/apirest.php")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+				return 1
+			}
+			glpiURL = val
 		}
 		if glpiAppToken == "" {
-			glpiAppToken = prompt(scanner, "App Token", "")
+			val, err := promptSecret("App Token")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+				return 1
+			}
+			glpiAppToken = val
 		}
 		if glpiUserToken == "" {
-			glpiUserToken = prompt(scanner, "User Token", "")
+			val, err := promptSecret("User Token")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+				return 1
+			}
+			glpiUserToken = val
 		}
 		if !*insecureSSL {
 			envInsecure := os.Getenv("GLPICTL_INSECURE_SSL")
-			if envInsecure == "" {
-				resp := prompt(scanner, "Insecure SSL (y/N)", "N")
+			if envInsecure != "" {
+				if parsed, err := strconv.ParseBool(envInsecure); err == nil {
+					*insecureSSL = parsed
+				} else {
+					fmt.Fprintf(os.Stderr, "Warning: ignoring invalid GLPICTL_INSECURE_SSL=%q: %v\n", envInsecure, err)
+				}
+			} else {
+				resp, err := prompt(scanner, "Insecure SSL (y/N)", "N")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+					return 1
+				}
 				*insecureSSL = strings.EqualFold(resp, "y") || strings.EqualFold(resp, "yes")
 			}
 		}
 		if *timeout == 30 {
 			envTimeout := os.Getenv("GLPICTL_TIMEOUT")
-			if envTimeout == "" {
-				resp := prompt(scanner, "Timeout (seconds)", "30")
+			if envTimeout != "" {
+				if parsed, err := strconv.Atoi(envTimeout); err == nil {
+					*timeout = parsed
+				} else {
+					fmt.Fprintf(os.Stderr, "Warning: ignoring invalid GLPICTL_TIMEOUT=%q: %v\n", envTimeout, err)
+				}
+			} else {
+				resp, err := prompt(scanner, "Timeout (seconds)", "30")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+					return 1
+				}
 				if resp != "" {
 					if t, err := parseInt(resp, 30); err == nil {
 						*timeout = t
@@ -103,15 +141,18 @@ func runConfigure(args []string) int {
 	fmt.Println("Connection successful!")
 
 	// Check if config already exists
-	configPath, err := getConfigPathForConfigure("")
+	configPath, err := config.GetConfigPath("")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
 
 	if fileExists(configPath) {
-		scanner := bufio.NewScanner(os.Stdin)
-		resp := prompt(scanner, fmt.Sprintf("Config file already exists at %s. Overwrite? (y/N)", configPath), "N")
+		resp, err := prompt(scanner, fmt.Sprintf("Config file already exists at %s. Overwrite? (y/N)", configPath), "N")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+			return 1
+		}
 		if !strings.EqualFold(resp, "y") && !strings.EqualFold(resp, "yes") {
 			fmt.Println("Configuration cancelled.")
 			return 0
@@ -153,7 +194,8 @@ func testConnection(cfg *config.Config) error {
 
 // prompt displays a prompt and reads a line from stdin.
 // If defaultVal is non-empty, it is shown in the prompt and returned on empty input.
-func prompt(scanner *bufio.Scanner, label, defaultVal string) string {
+// Returns the input value and any error that occurred during reading.
+func prompt(scanner *bufio.Scanner, label, defaultVal string) (string, error) {
 	if defaultVal != "" {
 		fmt.Printf("%s [%s]: ", label, defaultVal)
 	} else {
@@ -161,13 +203,33 @@ func prompt(scanner *bufio.Scanner, label, defaultVal string) string {
 	}
 
 	if !scanner.Scan() {
-		return defaultVal
+		if err := scanner.Err(); err != nil {
+			return defaultVal, fmt.Errorf("reading input: %w", err)
+		}
+		return defaultVal, nil // EOF
 	}
 	val := strings.TrimSpace(scanner.Text())
 	if val == "" {
-		return defaultVal
+		return defaultVal, nil
 	}
-	return val
+	return val, nil
+}
+
+// promptSecret displays a prompt and reads a line from stdin with terminal echo disabled.
+// Used for sensitive input like tokens and passwords.
+// Returns the input value and any error that occurred during reading.
+func promptSecret(label string) (string, error) {
+	fmt.Printf("%s: ", label)
+	data, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println() // Print newline since ReadPassword doesn't echo one
+	if err != nil {
+		return "", fmt.Errorf("reading secret: %w", err)
+	}
+	val := strings.TrimSpace(string(data))
+	if val == "" {
+		return "", fmt.Errorf("%s cannot be empty", label)
+	}
+	return val, nil
 }
 
 // firstNonEmpty returns the first non-empty string from the arguments.
@@ -182,34 +244,16 @@ func firstNonEmpty(values ...string) string {
 
 // parseInt parses a string as an integer, returning defaultVal on failure.
 func parseInt(s string, defaultVal int) (int, error) {
-	var result int
-	if _, err := fmt.Sscanf(s, "%d", &result); err != nil {
+	result, err := strconv.Atoi(s)
+	if err != nil {
 		return defaultVal, err
 	}
 	return result, nil
 }
 
 // fileExists returns true if the file exists.
+// Returns false on ALL errors from os.Stat — only returns true when err == nil.
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-// getConfigPathForConfigure returns the config file path for the configure command.
-// Duplicated from config.getConfigPath since that function is unexported.
-func getConfigPathForConfigure(path string) (string, error) {
-	if path != "" {
-		return path, nil
-	}
-
-	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
-	if xdgConfigHome == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		xdgConfigHome = filepath.Join(homeDir, ".config")
-	}
-
-	return filepath.Join(xdgConfigHome, "glpictl-ai", "config.toml"), nil
 }

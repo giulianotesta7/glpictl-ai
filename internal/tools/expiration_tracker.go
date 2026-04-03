@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -73,6 +74,21 @@ type ExpirationTrackerInput struct {
 // GetInput returns a new input struct for the tool.
 func (e *ExpirationTrackerTool) GetInput() *ExpirationTrackerInput {
 	return &ExpirationTrackerInput{}
+}
+
+// defaultExpirationItemtypes is the sorted list of all default itemtypes checked for expiration.
+// Kept in sync with expirationFieldRegistry to ensure deterministic iteration order.
+var defaultExpirationItemtypes = []string{
+	"Certificate",
+	"Computer",
+	"Contract",
+	"Domain",
+	"Monitor",
+	"NetworkEquipment",
+	"Peripheral",
+	"Phone",
+	"Printer",
+	"SoftwareLicense",
 }
 
 // expirationFieldRegistry maps itemtypes to their expiration field configurations.
@@ -148,10 +164,8 @@ func (e *ExpirationTrackerTool) Execute(ctx context.Context, daysAhead int, item
 	// Determine target itemtypes: default to all registry types if none specified.
 	targetTypes := itemtypes
 	if len(targetTypes) == 0 {
-		targetTypes = make([]string, 0, len(expirationFieldRegistry))
-		for k := range expirationFieldRegistry {
-			targetTypes = append(targetTypes, k)
-		}
+		targetTypes = make([]string, len(defaultExpirationItemtypes))
+		copy(targetTypes, defaultExpirationItemtypes)
 	}
 
 	// Filter out invalid itemtypes silently.
@@ -163,7 +177,7 @@ func (e *ExpirationTrackerTool) Execute(ctx context.Context, daysAhead int, item
 	}
 
 	// Compute cutoff date.
-	cutoffDate := time.Now().AddDate(0, 0, daysAhead)
+	cutoffDate := time.Now().UTC().AddDate(0, 0, daysAhead)
 	cutoffStr := cutoffDate.Format("2006-01-02")
 
 	// Shared data structures for concurrent aggregation.
@@ -268,7 +282,7 @@ func (e *ExpirationTrackerTool) queryDirectDate(ctx context.Context, itemtype st
 	}
 
 	var items []ExpiredItem
-	today := time.Now()
+	today := time.Now().UTC()
 
 	for _, item := range result.Data {
 		if item.Data == nil {
@@ -285,7 +299,7 @@ func (e *ExpirationTrackerTool) queryDirectDate(ctx context.Context, itemtype st
 			continue
 		}
 
-		daysUntil := int(expTime.Sub(today).Hours() / 24)
+		daysUntil := int(math.Floor(expTime.Sub(today).Seconds() / 86400))
 
 		name := extractNameField(item.Data, itemtype)
 		entityName := extractEntityName(item.Data)
@@ -333,7 +347,7 @@ func (e *ExpirationTrackerTool) queryComputedWarranty(ctx context.Context, itemt
 	}
 
 	var items []ExpiredItem
-	today := time.Now()
+	today := time.Now().UTC()
 
 	for _, item := range result.Data {
 		if item.Data == nil {
@@ -363,7 +377,7 @@ func (e *ExpirationTrackerTool) queryComputedWarranty(ctx context.Context, itemt
 			continue
 		}
 
-		daysUntil := int(expiryDate.Sub(today).Hours() / 24)
+		daysUntil := int(math.Floor(expiryDate.Sub(today).Seconds() / 86400))
 
 		name := extractNameField(item.Data, itemtype)
 		entityName := extractEntityName(item.Data)

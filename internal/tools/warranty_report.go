@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -245,7 +247,7 @@ func (w *WarrantyReportTool) queryWarranty(ctx context.Context, itemtype string,
 	}
 
 	var assets []WarrantyAssetDetail
-	today := time.Now()
+	today := time.Now().UTC()
 
 	for _, item := range result.Data {
 		if item.Data == nil {
@@ -269,7 +271,7 @@ func (w *WarrantyReportTool) queryWarranty(ctx context.Context, itemtype string,
 
 		// Compute expiry: warranty_date + warranty_duration months.
 		expiryDate := warrantyDate.AddDate(0, durationMonths, 0)
-		daysUntil := int(expiryDate.Sub(today).Hours() / 24)
+		daysUntil := int(math.Floor(expiryDate.Sub(today).Seconds() / 86400))
 
 		name := extractNameField(item.Data, itemtype)
 		entityName := extractEntityName(item.Data)
@@ -320,9 +322,7 @@ func extractPurchaseCost(data map[string]interface{}, itemtype string) float64 {
 
 // parseFloat parses a string to float64, handling common formats.
 func parseFloat(s string) (float64, error) {
-	var result float64
-	_, err := fmt.Sscanf(s, "%f", &result)
-	return result, err
+	return strconv.ParseFloat(s, 64)
 }
 
 // Ensure WarrantyReportTool implements the Tool interface.
