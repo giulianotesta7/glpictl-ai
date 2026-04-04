@@ -3,7 +3,7 @@ name: glpi-software
 description: >
   Manage GLPI software catalog, versions, installations, and licenses.
   Trigger: When the AI needs to work with software inventory, license tracking, compliance, or software installations.
-license: Apache-2.0
+license: MIT
 metadata:
   author: giulianotesta7
   version: "1.0"

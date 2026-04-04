@@ -3,7 +3,7 @@ name: glpi-infrastructure
 description: >
   Manage GLPI network infrastructure: equipment, ports, racks, cables, VLANs, and DCIM.
   Trigger: When the AI needs to work with network equipment, ports, rack positioning, cabling, VLANs, or data center infrastructure.
-license: Apache-2.0
+license: MIT
 metadata:
   author: giulianotesta7
   version: "1.0"

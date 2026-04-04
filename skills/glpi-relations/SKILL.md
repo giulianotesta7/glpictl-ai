@@ -3,7 +3,7 @@ name: glpi-relations
 description: >
   Manage GLPI users, groups, entities, and asset assignments.
   Trigger: When the AI needs to work with user accounts, groups, entity switching, or asset-to-user/group assignments.
-license: Apache-2.0
+license: MIT
 metadata:
   author: giulianotesta7
   version: "1.0"
