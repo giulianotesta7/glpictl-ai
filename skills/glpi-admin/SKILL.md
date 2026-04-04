@@ -3,7 +3,7 @@ name: glpi-admin
 description: >
   GLPI administration: dashboards, alerts, certificate/domain tracking, reservations, and configuration.
   Trigger: When the AI needs to work with inventory summaries, expiration alerts, certificates, domain tracking, reservations, or GLPI configuration tasks.
-license: Apache-2.0
+license: MIT
 metadata:
   author: giulianotesta7
   version: "1.0"

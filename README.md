@@ -3,7 +3,7 @@
 [![Go CI](https://github.com/giulianotesta7/glpictl-ai/actions/workflows/go-ci.yml/badge.svg)](https://github.com/giulianotesta7/glpictl-ai/actions/workflows/go-ci.yml)
 [![Release](https://github.com/giulianotesta7/glpictl-ai/actions/workflows/release.yml/badge.svg)](https://github.com/giulianotesta7/glpictl-ai/actions/workflows/release.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/giulianotesta7/glpictl-ai)](https://goreportcard.com/report/github.com/giulianotesta7/glpictl-ai)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 MCP (Model Context Protocol) server that wraps the GLPI REST API for IT inventory management. Designed for AI agents and humans.
 
@@ -187,4 +187,4 @@ glpictl-ai/
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

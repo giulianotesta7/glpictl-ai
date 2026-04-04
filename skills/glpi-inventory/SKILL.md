@@ -3,7 +3,7 @@ name: glpi-inventory
 description: >
   Query and manage GLPI inventory entities through MCP tools.
   Trigger: When the AI needs to interact with GLPI inventory items (search, get, create, update, delete, summary).
-license: Apache-2.0
+license: MIT
 metadata:
   author: giulianotesta7
   version: "1.0"

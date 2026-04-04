@@ -3,7 +3,7 @@ name: glpi-financial
 description: >
   Manage GLPI financial data: contracts, costs, budgets, depreciation, and warranties.
   Trigger: When the AI needs to work with contracts, purchase costs, budgets, asset depreciation, warranty tracking, or financial reporting.
-license: Apache-2.0
+license: MIT
 metadata:
   author: giulianotesta7
   version: "1.0"
