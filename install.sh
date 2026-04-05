@@ -9,7 +9,8 @@
 set -euo pipefail
 
 REPO="giulianotesta7/glpictl-ai"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="${HOME}/.local/bin"
+SYSTEM_MODE=false
 BINARY_NAME="glpictl-ai"
 
 # Global temp files — trap set once at top-level scope so it covers ALL exit paths
@@ -35,11 +36,75 @@ error() {
     echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
-# Check if running as root
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        error "This script must be run as root (use sudo)"
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dir)
+                if [[ -z "${2:-}" ]]; then
+                    error "--dir requires a path argument"
+                    exit 1
+                fi
+                INSTALL_DIR="$2"
+                shift 2
+                ;;
+            --system)
+                SYSTEM_MODE=true
+                INSTALL_DIR="/usr/local/bin"
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                error "Unknown argument: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Show usage information
+usage() {
+    echo "Usage: ./install.sh [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --dir <path>    Install to custom directory (default: ~/.local/bin)"
+    echo "  --system        Install to /usr/local/bin (requires sudo)"
+    echo "  -h, --help      Show this help message"
+}
+
+# Ensure install directory exists and is writable
+ensure_install_dir() {
+    if [[ ! -d "$INSTALL_DIR" ]]; then
+        if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+            error "Cannot create ${INSTALL_DIR}"
+            error "Try: sudo ./install.sh --system"
+            exit 1
+        fi
+    fi
+    
+    # Check writability
+    if [[ ! -w "$INSTALL_DIR" ]]; then
+        error "Cannot write to ${INSTALL_DIR}"
+        error "Try: sudo ./install.sh --system"
         exit 1
+    fi
+}
+
+# Check if install directory is in PATH, warn if not
+check_path() {
+    # Skip for system-wide install — /usr/local/bin is always in PATH
+    [[ "$SYSTEM_MODE" == true ]] && return 0
+    
+    # Check if INSTALL_DIR is in PATH
+    if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
+        warn "${INSTALL_DIR} is not in your PATH"
+        echo "  Add it with: echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.bashrc"
+        echo "  Or add this line to your shell profile:"
+        echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
     fi
 }
 
@@ -73,7 +138,7 @@ detect_arch() {
 
 # Get latest release version
 get_latest_version() {
-    info "Fetching latest release information..."
+    # NOTE: Do NOT call info() here - its output would be captured in VERSION
     LATEST_RELEASE=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)
 
     if [[ -z "$LATEST_RELEASE" ]]; then
@@ -208,7 +273,8 @@ main() {
     echo "========================================="
     echo ""
 
-    check_root
+    # Parse command line arguments first
+    parse_args "$@"
 
     OS=$(detect_os)
     ARCH=$(detect_arch)
@@ -223,11 +289,17 @@ main() {
     info "Latest version: ${VERSION}"
 
     download_binary "$VERSION" "$OS" "$ARCH"
+    
+    # Ensure install directory exists and is writable
+    ensure_install_dir
+    
     install_binary
 
-    echo ""
-    run_configure
-    run_setup_mcp
+    # Check if install directory is in PATH
+    check_path
+
+    info "Installation complete!"
+    info "Run 'glpictl-ai configure' to set up your GLPI connection"
 }
 
 main "$@"
