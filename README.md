@@ -185,6 +185,10 @@ glpictl-ai/
     └── release.yml           # Release: cross-compile binaries + checksums
 ```
 
+## Acknowledgments
+
+This project integrates with [GLPI](https://glpi-project.org) — a Free Asset and IT Management Software package — via its REST API. GLPI is licensed under the [GNU GPL v3](https://www.gnu.org/licenses/gpl-3.0.html).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
