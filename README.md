@@ -85,10 +85,35 @@ Or via environment variables:
 
 ```bash
 export GLPICTL_GLPI_URL=http://your-glpi/apirest.php
-export GLPICTL_APP_TOKEN="your-app-token"
-export GLPICTL_USER_TOKEN="your-user-token"
+export GLPICTL_GLPI_APP_TOKEN="your-app-token"
+export GLPICTL_GLPI_USER_TOKEN="your-user-token"
 glpictl-ai configure
 ```
+
+#### Configure flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--url` | GLPI API URL | — |
+| `--app-token` | GLPI application token | — |
+| `--user-token` | GLPI user token | — |
+| `--insecure-ssl` | Skip SSL certificate verification | `false` |
+| `--timeout` | HTTP timeout in seconds | `30` |
+
+#### Getting your GLPI tokens
+
+**App Token** (applies to all users):
+1. Log in to GLPI as an administrator
+2. Go to **Administration → API**
+3. Copy the **Application token**
+
+**User Token** (user-specific):
+1. Go to **Administration → Users**
+2. Select your user account
+3. Go to the **API** tab
+4. Copy the **API token**
+
+Both tokens are required for authentication. The user token identifies who is making the request, while the app token identifies the application.
 
 ### Verify
 
@@ -228,8 +253,8 @@ insecure_ssl = false
 | Variable | Description |
 |----------|-------------|
 | `GLPICTL_GLPI_URL` | GLPI API URL |
-| `GLPICTL_APP_TOKEN` | GLPI application token |
-| `GLPICTL_USER_TOKEN` | GLPI user token |
+| `GLPICTL_GLPI_APP_TOKEN` | GLPI application token |
+| `GLPICTL_GLPI_USER_TOKEN` | GLPI user token |
 | `GLPICTL_TIMEOUT` | HTTP timeout in seconds (default: 30) |
 | `GLPICTL_INSECURE_SSL` | Skip TLS verification (default: false) |
 
