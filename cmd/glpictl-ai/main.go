@@ -532,8 +532,20 @@ func createListFieldsHandler(client *glpi.Client) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(wrappedErr.Error()), nil
 		}
 
-		return mcp.NewToolResultStructured(result, fmt.Sprintf("List fields completed.\nItemType: %s\nFields: %d\nCached: %t",
-			result.ItemType, len(result.Fields), result.Cached)), nil
+		// Build a text summary that includes the actual field names and UIDs
+		// so the LLM can see them without needing to parse structured content.
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("List fields completed.\nItemType: %s\nTotal fields: %d\nCached: %t\n\nSearchable fields (ID | UID | Name):\n",
+			result.ItemType, len(result.Fields), result.Cached))
+		for _, f := range result.Fields {
+			uid := f.UID
+			if uid == "" {
+				uid = "-"
+			}
+			sb.WriteString(fmt.Sprintf("  %d | %s | %s\n", f.ID, uid, f.Name))
+		}
+
+		return mcp.NewToolResultStructured(result, sb.String()), nil
 	}
 }
 
@@ -685,7 +697,7 @@ func createUpdateByNameHandler(client *glpi.Client) server.ToolHandlerFunc {
 				for _, m := range ambiguousErr.Matches {
 					matchIDs = append(matchIDs, fmt.Sprintf("%d (%s)", m.ID, m.Name))
 				}
-				wrappedErr := fmt.Errorf("%s; showing first %d of %d matches: %s", err, len(ambiguousErr.Matches), ambiguousErr.TotalCount, strings.Join(matchIDs, ", "))
+				wrappedErr := fmt.Errorf("update by name: %w; showing first %d of %d matches: %s", err, len(ambiguousErr.Matches), ambiguousErr.TotalCount, strings.Join(matchIDs, ", "))
 				return mcp.NewToolResultError(wrappedErr.Error()), nil
 			}
 			wrappedErr := fmt.Errorf("update by name: %w", err)
@@ -789,7 +801,7 @@ func createLicenseComplianceHandler(client *glpi.Client) server.ToolHandlerFunc 
 			var err error
 			entityID, err = request.RequireInt("entity_id")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("entity_id must be a number: %w", err).Error()), nil
 			}
 		}
 
@@ -886,7 +898,7 @@ func createExpirationTrackerHandler(client *glpi.Client) server.ToolHandlerFunc 
 			var err error
 			entityID, err = request.RequireInt("entity_id")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("entity_id must be a number: %w", err).Error()), nil
 			}
 		}
 
@@ -915,7 +927,7 @@ func createWarrantyReportHandler(client *glpi.Client) server.ToolHandlerFunc {
 			var err error
 			dw, err := request.RequireInt("days_warning")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("days_warning must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("days_warning must be a number: %w", err).Error()), nil
 			}
 			daysWarning = int(dw)
 		}
@@ -930,7 +942,7 @@ func createWarrantyReportHandler(client *glpi.Client) server.ToolHandlerFunc {
 			var err error
 			entityID, err = request.RequireInt("entity_id")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("entity_id must be a number: %w", err).Error()), nil
 			}
 		}
 
@@ -959,7 +971,7 @@ func createCostSummaryHandler(client *glpi.Client) server.ToolHandlerFunc {
 			var err error
 			entityID, err = request.RequireInt("entity_id")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("entity_id must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("entity_id must be a number: %w", err).Error()), nil
 			}
 		}
 
@@ -992,7 +1004,7 @@ func createRackCapacityHandler(client *glpi.Client) server.ToolHandlerFunc {
 			var err error
 			rackID, err = request.RequireInt("rack_id")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("rack_id must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("rack_id must be a number: %w", err).Error()), nil
 			}
 		}
 
@@ -1023,7 +1035,7 @@ func createNetworkTopologyHandler(client *glpi.Client) server.ToolHandlerFunc {
 			var err error
 			portID, err = request.RequireInt("port_id")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("port_id must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("port_id must be a number: %w", err).Error()), nil
 			}
 		}
 
@@ -1032,7 +1044,7 @@ func createNetworkTopologyHandler(client *glpi.Client) server.ToolHandlerFunc {
 			var err error
 			deviceID, err = request.RequireInt("device_id")
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("device_id must be a number: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Errorf("device_id must be a number: %w", err).Error()), nil
 			}
 		}
 

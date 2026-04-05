@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
 )
 
 // GroupAssetsResult represents the assets assigned to a group.
@@ -43,6 +46,47 @@ func (g *GroupAssetsTool) Description() string {
 	return "Get all assets assigned to a specific group"
 }
 
+// resolveGroupFieldID finds the numeric field ID for the group assignment field
+// in the given itemtype by inspecting search options.
+func (g *GroupAssetsTool) resolveGroupFieldID(ctx context.Context, itemtype string) (int, error) {
+	searchOptions, err := g.client.GetSearchOptions(ctx, itemtype)
+	if err != nil {
+		return 0, fmt.Errorf("get search options for %s: %w", itemtype, err)
+	}
+
+	// GLPI stores group assignment via the Group_Item linking table.
+	// There may be multiple group fields (e.g., "Group" vs "Group in Charge").
+	// We want the primary group assignment field, not the tech/support one.
+	// Look for fields whose UID contains "Group_Item.Group" and prefer the one
+	// whose name is simply "Group" (not "Group in Charge" or similar).
+	var bestMatch *glpi.SearchOption
+	for _, opt := range searchOptions.Fields {
+		if strings.Contains(opt.UID, "Group_Item.Group") {
+			// Prefer the field whose display name is exactly "Group"
+			if opt.DisplayName == "Group" || opt.Name == "Group" {
+				return opt.ID, nil
+			}
+			// Otherwise keep the first match as fallback
+			if bestMatch == nil {
+				bestMatch = &opt
+			}
+		}
+	}
+	if bestMatch != nil {
+		return bestMatch.ID, nil
+	}
+
+	// Fallback: look for field with table containing "group" and field "completename" or "name"
+	for _, opt := range searchOptions.Fields {
+		if strings.Contains(strings.ToLower(opt.Table), "group") &&
+			(strings.EqualFold(opt.Field, "completename") || strings.EqualFold(opt.Field, "name")) {
+			return opt.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no groups_id field found for itemtype %q", itemtype)
+}
+
 // Execute searches across inventory types for items assigned to the given group ID.
 func (g *GroupAssetsTool) Execute(ctx context.Context, groupID int, itemtypes []string) (*GroupAssetsResult, error) {
 	if groupID <= 0 {
@@ -57,8 +101,14 @@ func (g *GroupAssetsTool) Execute(ctx context.Context, groupID int, itemtypes []
 	}
 
 	for _, itemtype := range itemtypes {
+		// Dynamically resolve the correct field ID for group assignment in this itemtype
+		groupFieldID, err := g.resolveGroupFieldID(ctx, itemtype)
+		if err != nil {
+			continue // Skip itemtypes where we can't find the group field
+		}
+
 		searchResult, err := (&SearchTool{client: g.client}).Execute(ctx, itemtype, []SearchCriterion{{
-			FieldName:  fmt.Sprintf("%s.groups_id", itemtype),
+			Field:      groupFieldID,
 			SearchType: "equals",
 			Value:      fmt.Sprintf("%d", groupID),
 		}}, []string{"name"}, nil)

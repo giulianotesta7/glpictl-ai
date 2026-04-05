@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -55,11 +56,9 @@ func TestDeleteTool_Execute(t *testing.T) {
 				if endpoint != "/Computer/5" {
 					t.Errorf("endpoint = %q, want %q", endpoint, "/Computer/5")
 				}
-				resMap := result.(*map[string]interface{})
-				*resMap = map[string]interface{}{
-					"id":      float64(5),
-					"message": "Item deleted",
-				}
+				// GLPI returns object format for some delete operations
+				raw := json.RawMessage(`{"id": 5, "message": "Item deleted"}`)
+				*result.(*json.RawMessage) = raw
 				return nil
 			},
 		}
@@ -75,6 +74,48 @@ func TestDeleteTool_Execute(t *testing.T) {
 		}
 		if result.Message != "Item deleted" {
 			t.Errorf("Message = %q, want %q", result.Message, "Item deleted")
+		}
+	})
+
+	t.Run("deletes item with array response", func(t *testing.T) {
+		mockClient := &MockClient{
+			DeleteFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				// GLPI returns array format: [{"5": true, "message": ""}]
+				raw := json.RawMessage(`[{"5": true, "message": ""}]`)
+				*result.(*json.RawMessage) = raw
+				return nil
+			},
+		}
+
+		tool, _ := NewDeleteTool(mockClient)
+		result, err := tool.Execute(context.Background(), "Computer", 5)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.ID != 5 {
+			t.Errorf("ID = %d, want %d", result.ID, 5)
+		}
+	})
+
+	t.Run("deletes item with minimal array response", func(t *testing.T) {
+		mockClient := &MockClient{
+			DeleteFunc: func(ctx context.Context, endpoint string, result interface{}) error {
+				// GLPI returns minimal array format: [{"5": true}]
+				raw := json.RawMessage(`[{"5": true}]`)
+				*result.(*json.RawMessage) = raw
+				return nil
+			},
+		}
+
+		tool, _ := NewDeleteTool(mockClient)
+		result, err := tool.Execute(context.Background(), "Computer", 5)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.ID != 5 {
+			t.Errorf("ID = %d, want %d", result.ID, 5)
 		}
 	})
 
