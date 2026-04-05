@@ -15,10 +15,10 @@ import (
 	"golang.org/x/term"
 )
 
-// runConfigure handles the "configure" subcommand.
+// runConfig handles the "config" subcommand.
 // Returns exit code: 0 on success, 1 on error.
-func runConfigure(args []string) int {
-	fs := flag.NewFlagSet("configure", flag.ExitOnError)
+func runConfig(args []string) int {
+	fs := flag.NewFlagSet("config", flag.ExitOnError)
 	url := fs.String("url", "", "GLPI API URL (e.g., http://localhost/apirest.php)")
 	appToken := fs.String("app-token", "", "GLPI application token")
 	userToken := fs.String("user-token", "", "GLPI user token")

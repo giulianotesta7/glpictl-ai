@@ -34,17 +34,19 @@ func main() {
 	// Check for subcommands first (before flag parsing)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "configure":
-			os.Exit(runConfigure(os.Args[2:]))
-		case "setup-mcp":
-			os.Exit(runSetupMCP(os.Args[2:]))
+		case "config":
+			os.Exit(runConfig(os.Args[2:]))
+		case "install":
+			os.Exit(runInstall(os.Args[2:]))
 		case "version":
 			printVersion()
 			os.Exit(ExitOK)
+		case "update":
+			os.Exit(runUpdate(os.Args[2:]))
 		}
 	}
 
-	// Parse flags
+	// Parse flags (legacy: --version still supported)
 	configPath := flag.String("config", "", "Path to config file (default: ~/.config/glpictl-ai/config.toml)")
 	showVersion := flag.Bool("version", false, "Show version")
 	flag.Parse()
