@@ -299,7 +299,9 @@ main() {
     check_path
 
     info "Installation complete!"
-    info "Run 'glpictl-ai configure' to set up your GLPI connection"
+    info "Next steps:"
+    info "  1. glpictl-ai config    # Configure GLPI connection"
+    info "  2. glpictl-ai install  # Install MCP in your provider"
 }
 
 main "$@"

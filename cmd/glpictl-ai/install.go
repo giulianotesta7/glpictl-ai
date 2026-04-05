@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/giulianotesta7/glpictl-ai/internal/config"
+	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
 )
 
 //go:embed skills/*
@@ -26,9 +29,9 @@ type mcpClient struct {
 	SkillsDir   func() (string, error)
 }
 
-// runSetupMCP handles the "setup-mcp" subcommand.
+// runInstall handles the "install" subcommand.
 // Returns exit code: 0 on success, 1 on error.
-func runSetupMCP(args []string) int {
+func runInstall(args []string) int {
 	_ = args // reserved for future flags
 
 	// Load existing GLPI config
@@ -36,12 +39,29 @@ func runSetupMCP(args []string) int {
 	if err != nil {
 		if config.IsErrNotFound(err) {
 			fmt.Fprintln(os.Stderr, "Error: GLPI configuration not found.")
-			fmt.Fprintln(os.Stderr, "Run 'glpictl-ai configure' first to set up your GLPI connection.")
+			fmt.Fprintln(os.Stderr, "Run 'glpictl-ai config' first to set up your GLPI connection.")
 			return 1
 		}
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		return 1
 	}
+
+	// Test connection
+	fmt.Println("Testing connection to GLPI...")
+	client, err := glpi.NewClient(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create GLPI client: %v\n", err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.Timeout)*time.Second)
+	defer cancel()
+	if err := client.InitSession(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: connection test failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Please check your URL and tokens, then try again.")
+		return 1
+	}
+	client.KillSession(ctx)
+	fmt.Println("Connection successful!")
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -215,9 +235,9 @@ func writeOpenCodeConfig(path, glpiURL, appToken, userToken string) error {
 				"type":    "local",
 				"command": []string{"glpictl-ai"},
 				"environment": map[string]string{
-					"GLPICTL_GLPI_URL":   glpiURL,
-					"GLPICTL_APP_TOKEN":  appToken,
-					"GLPICTL_USER_TOKEN": userToken,
+					"GLPICTL_GLPI_URL":        glpiURL,
+					"GLPICTL_GLPI_APP_TOKEN":  appToken,
+					"GLPICTL_GLPI_USER_TOKEN": userToken,
 				},
 				"enabled": true,
 			},
@@ -268,9 +288,9 @@ func writeClaudeCodeConfig(path, glpiURL, appToken, userToken string) error {
 			"glpictl-ai": map[string]interface{}{
 				"command": "glpictl-ai",
 				"env": map[string]string{
-					"GLPICTL_GLPI_URL":   glpiURL,
-					"GLPICTL_APP_TOKEN":  appToken,
-					"GLPICTL_USER_TOKEN": userToken,
+					"GLPICTL_GLPI_URL":        glpiURL,
+					"GLPICTL_GLPI_APP_TOKEN":  appToken,
+					"GLPICTL_GLPI_USER_TOKEN": userToken,
 				},
 			},
 		},
@@ -322,9 +342,9 @@ func writeClaudeDesktopConfig(path, glpiURL, appToken, userToken string) error {
 			"glpictl-ai": map[string]interface{}{
 				"command": "glpictl-ai",
 				"env": map[string]string{
-					"GLPICTL_GLPI_URL":   glpiURL,
-					"GLPICTL_APP_TOKEN":  appToken,
-					"GLPICTL_USER_TOKEN": userToken,
+					"GLPICTL_GLPI_URL":        glpiURL,
+					"GLPICTL_GLPI_APP_TOKEN":  appToken,
+					"GLPICTL_GLPI_USER_TOKEN": userToken,
 				},
 			},
 		},

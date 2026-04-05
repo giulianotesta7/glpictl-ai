@@ -206,8 +206,11 @@ try {
     $binaryPath = Install-Binary -SourceFile $tempFile
 
     Write-Host ""
-    Run-Configure -BinaryPath $binaryPath
-    Run-Setup-MCP -BinaryPath $binaryPath
+    Write-Info "Installation complete!"
+    Write-Host ""
+    Write-Host "Next steps:"
+    Write-Host "  1. glpictl-ai config    # Configure GLPI connection"
+    Write-Host "  2. glpictl-ai install  # Install MCP in your provider"
 }
 finally {
     # Clean up temp files on any exit path (success, failure, or exception)

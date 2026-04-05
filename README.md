@@ -69,13 +69,13 @@ Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/giu
 ### Configure
 
 ```bash
-glpictl-ai configure
+glpictl-ai config
 ```
 
 Or non-interactively:
 
 ```bash
-glpictl-ai configure \
+glpictl-ai config \
   --url http://your-glpi/apirest.php \
   --app-token "your-app-token" \
   --user-token "your-user-token"
@@ -87,7 +87,7 @@ Or via environment variables:
 export GLPICTL_GLPI_URL=http://your-glpi/apirest.php
 export GLPICTL_GLPI_APP_TOKEN="your-app-token"
 export GLPICTL_GLPI_USER_TOKEN="your-user-token"
-glpictl-ai configure
+glpictl-ai config
 ```
 
 #### Configure flags
@@ -120,15 +120,16 @@ Both tokens are required for authentication. The user token identifies who is ma
 ```bash
 glpictl-ai version
 glpictl-ai ping
+glpictl-ai update
 ```
 
-### Set Up MCP Clients
+### Install MCP
 
 ```bash
-glpictl-ai setup-mcp
+glpictl-ai install
 ```
 
-Select which clients to configure (OpenCode, Claude Code, Claude Desktop). The installer runs this automatically after configuration.
+Select which clients to configure (OpenCode, Claude Code, Claude Desktop).
 
 ## MCP Tools
 
@@ -168,12 +169,10 @@ Select which clients to configure (OpenCode, Claude Code, Claude Desktop). The i
 
 ## MCP Client Integration
 
-After installing and configuring GLPI, the installer will prompt you to set up MCP clients automatically.
-
-You can also run it manually at any time:
+After installing and configuring GLPI, run the install command to set up MCP:
 
 ```bash
-glpictl-ai setup-mcp
+glpictl-ai install
 ```
 
 This interactive tool lets you select which clients to configure. For each client it:
@@ -285,7 +284,7 @@ go test -race ./...
 
 ```
 glpictl-ai/
-├── cmd/glpictl-ai/       # CLI entry point, configure, setup-mcp
+├── cmd/glpictl-ai/       # CLI entry point (config, install, version, update)
 ├── internal/
 │   ├── glpi/             # GLPI REST API client (session mgmt, auto-reconnect)
 │   ├── config/           # Config loader (TOML, env vars, CLI flags)
