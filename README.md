@@ -18,6 +18,41 @@ MCP (Model Context Protocol) server that wraps the GLPI REST API for IT inventor
 - **Cost summary** — financial aggregation across assets, contracts, and budgets
 - **Group assets** — retrieve all assets assigned to a GLPI group
 - **Installation scripts** — one-command setup for Linux, macOS, and Windows
+- **Automatic MCP client setup** — configure OpenCode, Claude Code, and Claude Desktop with one command
+- **Embedded GLPI skills** — AI agents get domain-specific instructions for all 6 GLPI domains
+
+## Prerequisites
+
+### GLPI Instance
+
+You need a running GLPI instance (version 10.0+) with the **API enabled**. The API is not enabled by default.
+
+### Enable the API in GLPI
+
+> **Note**: glpictl-ai uses the **GLPI REST API (legacy)** at `/apirest.php`. This is the default API available in GLPI 10.x.
+
+1. Log in to GLPI as a **Super-Admin**
+2. Go to **Setup** → **General** → **API** tab
+3. Set **Enable API login** to **Yes**
+4. Click **Save**
+
+### Create an API Client (App Token)
+
+1. In the same API settings page, scroll to **API clients**
+2. Click **Add an API client**
+3. Fill in:
+   - **Name**: `glpictl-ai` (or whatever you prefer)
+   - **IPv4 range**: `127.0.0.1-255.255.255.255` (or your network range)
+   - **IPv6 address**: leave blank or set as needed
+4. Click **Save**
+5. Copy the **App-Token** value — you'll need it for configuration
+
+### Generate a User Token
+
+1. Go to **Preferences** (click your username in the top-right corner)
+2. Scroll to the **Personal access tokens** section
+3. Click **Add a token**
+4. Copy the generated **User Token** — you'll need it for configuration
 
 ## Quick Start
 
@@ -62,6 +97,14 @@ glpictl-ai version
 glpictl-ai ping
 ```
 
+### Set Up MCP Clients
+
+```bash
+glpictl-ai setup-mcp
+```
+
+Select which clients to configure (OpenCode, Claude Code, Claude Desktop). The installer runs this automatically after configuration.
+
 ## MCP Tools
 
 ### Inventory
@@ -97,6 +140,75 @@ glpictl-ai ping
 | `glpi_summary` | Dashboard with item counts by type |
 | `glpi_global_search` | Search across multiple itemtypes at once |
 | `glpi_ping` | Test GLPI connection |
+
+## MCP Client Integration
+
+After installing and configuring GLPI, the installer will prompt you to set up MCP clients automatically.
+
+You can also run it manually at any time:
+
+```bash
+glpictl-ai setup-mcp
+```
+
+This interactive tool lets you select which clients to configure. For each client it:
+
+1. Writes the MCP server config with your GLPI credentials
+2. Installs 6 GLPI skills so the AI agent knows how to use each domain:
+   - **glpi-inventory** — search, get, create, update, delete
+   - **glpi-software** — licenses, compliance, auditing
+   - **glpi-infrastructure** — network equipment, ports, racks, VLANs
+   - **glpi-financial** — contracts, costs, budgets, depreciation
+   - **glpi-relations** — users, groups, entities, assignments
+   - **glpi-admin** — dashboards, alerts, certificates, domains
+
+Supported clients:
+
+| Client | MCP Config | Skills |
+|--------|-----------|--------|
+| **OpenCode** | `~/.config/opencode/opencode.json` | `~/.config/opencode/skills/glpictl-ai/` |
+| **Claude Code** | `~/.claude/settings.json` | `~/.claude/skills/glpictl-ai/` |
+| **Claude Desktop** | `~/.config/claude/claude_desktop_config.json` | Not supported |
+
+> **Tip**: The setup reads your existing GLPI config from `~/.config/glpictl-ai/config.toml` automatically — no need to re-enter tokens.
+
+## Example Usage
+
+Once connected, you can ask your AI agent natural language questions about your IT infrastructure:
+
+### Simple Query
+
+> **You:** "Show me all computers assigned to the IT department"
+>
+> **Agent:** Calls `glpi_global_search` with `itemtype=Computer`, filters by group → returns 12 computers with status, serial numbers, and assigned users.
+
+### License Compliance
+
+> **You:** "What's our Microsoft Office license compliance status?"
+>
+> **Agent:** Calls `glpi_search` for Software named "Microsoft Office" → gets software ID → calls `glpi_license_compliance` with that ID → returns: "You have 50 licenses purchased, 63 installations detected — **13 over-licensed**."
+
+### Infrastructure
+
+> **You:** "Which racks are running out of space?"
+>
+> **Agent:** Calls `glpi_rack_capacity` → returns: "Rack A-03 is at 92% (42/46U), Rack B-01 at 88% (39/44U). 3 servers are unplaced and don't fit in any rack."
+
+### Multi-Step Analysis
+
+> **You:** "Generate a warranty report for all hardware expiring in the next 90 days and tell me the total replacement cost"
+>
+> **Agent:**
+> 1. Calls `glpi_warranty_report` with `days_warning=90`
+> 2. Gets 8 items with expiring warranties (3 computers, 2 monitors, 1 printer, 2 network switches)
+> 3. Calls `glpi_cost_summary` to aggregate purchase values
+> 4. Returns: "8 items expiring soon. Total replacement cost: **$14,250** (computers: $9,800, monitors: $1,200, printer: $450, switches: $2,800)"
+
+### Network Troubleshooting
+
+> **You:** "Trace the network path from the web server to the core switch"
+>
+> **Agent:** Calls `glpi_search` for the web server → gets device ID → calls `glpi_network_topology` with that ID → returns the full cable path through patch panels and intermediate switches.
 
 ## Configuration
 
@@ -148,41 +260,14 @@ go test -race ./...
 
 ```
 glpictl-ai/
-├── cmd/glpictl-ai/
-│   ├── main.go              # Entry point, tool registration, signal handling
-│   ├── configure.go          # CLI configure command
-│   └── version.go            # CLI version command
+├── cmd/glpictl-ai/       # CLI entry point, configure, setup-mcp
 ├── internal/
-│   ├── glpi/
-│   │   └── client.go         # GLPI REST API client (session mgmt)
-│   ├── config/
-│   │   └── config.go         # Config loader (TOML), Save(), validation
-│   └── tools/                # MCP tool implementations
-│       ├── search.go
-│       ├── get.go
-│       ├── create.go
-│       ├── update.go
-│       ├── delete.go
-│       ├── summary.go
-│       ├── global_search.go
-│       ├── list_fields.go
-│       ├── user_assets.go
-│       ├── group_assets.go
-│       ├── bulk_update.go
-│       ├── update_by_name.go
-│       ├── license_compliance.go
-│       ├── expiration_tracker.go
-│       ├── rack_capacity.go
-│       ├── network_topology.go
-│       ├── warranty_report.go
-│       ├── cost_summary.go
-│       └── ping.go
-├── skills/                   # SKILL.md files for AI agents
-├── install.sh                # Linux/macOS installer
-├── install.ps1               # Windows installer
-└── .github/workflows/
-    ├── go-ci.yml             # CI: vet, test, build
-    └── release.yml           # Release: cross-compile binaries + checksums
+│   ├── glpi/             # GLPI REST API client (session mgmt, auto-reconnect)
+│   ├── config/           # Config loader (TOML, env vars, CLI flags)
+│   └── tools/            # MCP tool implementations
+├── skills/               # GLPI domain skills for AI agents
+├── install.sh            # Linux/macOS installer
+└── install.ps1           # Windows installer
 ```
 
 ## Acknowledgments

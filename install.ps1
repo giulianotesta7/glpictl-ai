@@ -177,6 +177,15 @@ function Run-Configure {
     & $BinaryPath configure
 }
 
+function Run-Setup-MCP {
+    param([string]$BinaryPath)
+
+    Write-Host ""
+    Write-Info "Setting up MCP clients..."
+    Write-Host ""
+    & $BinaryPath setup-mcp
+}
+
 # Main
 Write-Host "========================================="
 Write-Host "  glpictl-ai Installer (Windows)"
@@ -198,6 +207,7 @@ try {
 
     Write-Host ""
     Run-Configure -BinaryPath $binaryPath
+    Run-Setup-MCP -BinaryPath $binaryPath
 }
 finally {
     # Clean up temp files on any exit path (success, failure, or exception)

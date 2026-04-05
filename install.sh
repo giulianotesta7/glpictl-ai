@@ -187,6 +187,20 @@ run_configure() {
     fi
 }
 
+# Run MCP client setup
+run_setup_mcp() {
+    echo ""
+    info "Setting up MCP clients..."
+    echo ""
+    # If running under sudo, run as the original user so configs
+    # are saved to the user's home directory
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        sudo -u "$SUDO_USER" "${INSTALL_DIR}/${BINARY_NAME}" setup-mcp
+    else
+        "${INSTALL_DIR}/${BINARY_NAME}" setup-mcp
+    fi
+}
+
 # Main
 main() {
     echo "========================================="
@@ -213,6 +227,7 @@ main() {
 
     echo ""
     run_configure
+    run_setup_mcp
 }
 
 main "$@"

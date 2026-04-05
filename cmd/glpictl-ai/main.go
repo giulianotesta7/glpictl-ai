@@ -36,6 +36,8 @@ func main() {
 		switch os.Args[1] {
 		case "configure":
 			os.Exit(runConfigure(os.Args[2:]))
+		case "setup-mcp":
+			os.Exit(runSetupMCP(os.Args[2:]))
 		case "version":
 			printVersion()
 			os.Exit(ExitOK)
