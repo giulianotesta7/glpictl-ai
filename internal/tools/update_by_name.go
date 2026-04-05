@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -53,8 +55,7 @@ func (e *UpdateByNameAmbiguousError) Error() string {
 
 // UpdateByNameTool updates a GLPI item after resolving a unique exact name match.
 type UpdateByNameTool struct {
-	searchTool *SearchTool
-	updateTool *UpdateTool
+	client ToolClient
 }
 
 // NewUpdateByNameTool creates a new update-by-name tool with the given client.
@@ -63,16 +64,7 @@ func NewUpdateByNameTool(client ToolClient) (*UpdateByNameTool, error) {
 		return nil, fmt.Errorf("update-by-name tool: client cannot be nil")
 	}
 
-	searchTool, err := NewSearchTool(client)
-	if err != nil {
-		return nil, fmt.Errorf("create search tool: %w", err)
-	}
-	updateTool, err := NewUpdateTool(client)
-	if err != nil {
-		return nil, fmt.Errorf("create update tool: %w", err)
-	}
-
-	return &UpdateByNameTool{searchTool: searchTool, updateTool: updateTool}, nil
+	return &UpdateByNameTool{client: client}, nil
 }
 
 // Name returns the tool name for registration.
@@ -105,43 +97,108 @@ func (u *UpdateByNameTool) Execute(ctx context.Context, itemtype string, name st
 		return nil, fmt.Errorf("data is required")
 	}
 
-	// Search using canonical UID form and exact match semantics
-	searchResult, err := u.searchTool.Execute(ctx, itemtype, []SearchCriterion{{
-		FieldName:  fmt.Sprintf("%s.name", itemtype),
-		SearchType: "equals",
-		Value:      name,
-	}}, []string{"name"}, &SearchRange{Start: 0, End: 20})
+	// Build search query with forcedisplay to ensure ID (field 2) is returned
+	params := url.Values{}
+	params.Add("criteria[0][field]", "1")
+	params.Add("criteria[0][searchtype]", "contains")
+	params.Add("criteria[0][value]", name)
+	params.Add("forcedisplay[0]", "2")
+	params.Add("range", "0-50")
+
+	endpoint := fmt.Sprintf("/search/%s?%s", itemtype, params.Encode())
+
+	var result map[string]interface{}
+	err := u.client.Get(ctx, endpoint, &result)
 	if err != nil {
 		return nil, fmt.Errorf("resolve item by name: %w", err)
 	}
 
-	if searchResult.TotalCount == 0 || len(searchResult.Data) == 0 {
-		return nil, &UpdateByNameNotFoundError{ItemType: itemtype, Name: name}
-	}
-	if searchResult.TotalCount > 1 {
-		return nil, &UpdateByNameAmbiguousError{
-			ItemType:   itemtype,
-			Name:       name,
-			TotalCount: searchResult.TotalCount,
-			Matches:    collectMatchCandidates(searchResult.Data),
+	// Parse totalcount
+	totalCount := 0
+	if tc, ok := result["totalcount"]; ok {
+		switch v := tc.(type) {
+		case float64:
+			totalCount = int(v)
+		case int:
+			totalCount = v
 		}
 	}
 
-	// Verify literal exact match after singleton search
-	match := searchResult.Data[0]
-	if candidateName(match) != name {
+	if totalCount == 0 {
 		return nil, &UpdateByNameNotFoundError{ItemType: itemtype, Name: name}
 	}
 
+	// Parse data array and find exact name match
+	var exactID int
+	var exactName string
+	var matchCount int
+	var matches []MatchCandidate
+
+	if dataArray, ok := result["data"].([]interface{}); ok {
+		for _, rawItem := range dataArray {
+			itemMap, ok := rawItem.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Extract name from field "1" (GLPI returns it as string when fields are specified)
+			itemName := ""
+			if v, ok := itemMap["1"]; ok {
+				switch val := v.(type) {
+				case string:
+					itemName = val
+				case float64:
+					itemName = fmt.Sprintf("%.0f", val)
+				}
+			}
+
+			if itemName != name {
+				continue
+			}
+
+			// Extract ID from field "2" (forcedisplay ensures it's present)
+			itemID := 0
+			if v, ok := itemMap["2"]; ok {
+				switch val := v.(type) {
+				case float64:
+					itemID = int(val)
+				case int:
+					itemID = val
+				case string:
+					itemID, _ = strconv.Atoi(val)
+				}
+			}
+
+			if itemID > 0 {
+				exactID = itemID
+				exactName = itemName
+				matchCount++
+				matches = append(matches, MatchCandidate{ID: itemID, Name: itemName})
+			}
+		}
+	}
+
+	if matchCount == 0 {
+		return nil, &UpdateByNameNotFoundError{ItemType: itemtype, Name: name}
+	}
+	if matchCount > 1 {
+		return nil, &UpdateByNameAmbiguousError{
+			ItemType:   itemtype,
+			Name:       name,
+			TotalCount: matchCount,
+			Matches:    matches,
+		}
+	}
+
 	// Perform the update
-	updateResult, err := u.updateTool.Execute(ctx, itemtype, match.ID, data)
+	updateResult, err := (&UpdateTool{client: u.client}).Execute(ctx, itemtype, exactID, data)
 	if err != nil {
 		return nil, fmt.Errorf("update item by name: %w", err)
 	}
 
 	return &UpdateByNameResult{
 		ID:      updateResult.ID,
-		Name:    candidateName(match),
+		Name:    exactName,
 		Message: updateResult.Message,
 		Data:    updateResult.Data,
 	}, nil
@@ -150,16 +207,17 @@ func (u *UpdateByNameTool) Execute(ctx context.Context, itemtype string, name st
 func collectMatchCandidates(data []SearchData) []MatchCandidate {
 	matches := make([]MatchCandidate, 0, len(data))
 	for _, item := range data {
-		matches = append(matches, MatchCandidate{ID: item.ID, Name: candidateName(item)})
+		matches = append(matches, MatchCandidate{ID: item.ID, Name: candidateNameFromData(item.Data)})
 	}
 	return matches
 }
 
-func candidateName(item SearchData) string {
-	if value, ok := item.Data["name"].(string); ok {
+// candidateNameFromData extracts the name from search result data.
+func candidateNameFromData(data map[string]interface{}) string {
+	if value, ok := data["name"].(string); ok {
 		return value
 	}
-	if value, ok := item.Data["1"].(string); ok {
+	if value, ok := data["1"].(string); ok {
 		return value
 	}
 	return ""

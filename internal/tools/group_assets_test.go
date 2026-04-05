@@ -33,7 +33,7 @@ func TestGroupAssetsTool_Execute(t *testing.T) {
 					ItemType: itemtype,
 					Fields: []glpi.SearchOption{
 						{ID: 1, UID: itemtype + ".name", Field: "name", Name: "Name", DisplayName: "Name"},
-						{ID: 80, UID: itemtype + ".groups_id", Field: "groups_id", Name: "Group", DisplayName: "Group"},
+						{ID: 71, UID: itemtype + ".Group_Item.Group.completename", Field: "completename", Name: "Group", DisplayName: "Group", Table: "glpi_groups"},
 					},
 				}, nil
 			},
@@ -76,7 +76,7 @@ func TestGroupAssetsTool_Execute(t *testing.T) {
 					ItemType: itemtype,
 					Fields: []glpi.SearchOption{
 						{ID: 1, UID: itemtype + ".name", Field: "name", Name: "Name", DisplayName: "Name"},
-						{ID: 80, UID: itemtype + ".groups_id", Field: "groups_id", Name: "Group", DisplayName: "Group"},
+						{ID: 71, UID: itemtype + ".Group_Item.Group.completename", Field: "completename", Name: "Group", DisplayName: "Group", Table: "glpi_groups"},
 					},
 				}, nil
 			},
@@ -146,7 +146,7 @@ func TestGroupAssetsTool_Execute(t *testing.T) {
 					ItemType: itemtype,
 					Fields: []glpi.SearchOption{
 						{ID: 1, UID: itemtype + ".name", Field: "name", Name: "Name", DisplayName: "Name"},
-						{ID: 80, UID: itemtype + ".groups_id", Field: "groups_id", Name: "Group", DisplayName: "Group"},
+						{ID: 71, UID: itemtype + ".Group_Item.Group.completename", Field: "completename", Name: "Group", DisplayName: "Group", Table: "glpi_groups"},
 					},
 				}, nil
 			},
@@ -188,7 +188,7 @@ func TestGroupAssetsTool_Execute(t *testing.T) {
 					ItemType: itemtype,
 					Fields: []glpi.SearchOption{
 						{ID: 1, UID: itemtype + ".name", Field: "name", Name: "Name", DisplayName: "Name"},
-						{ID: 80, UID: itemtype + ".groups_id", Field: "groups_id", Name: "Group", DisplayName: "Group"},
+						{ID: 71, UID: itemtype + ".Group_Item.Group.completename", Field: "completename", Name: "Group", DisplayName: "Group", Table: "glpi_groups"},
 					},
 				}, nil
 			},
@@ -242,7 +242,7 @@ func TestGroupAssetsTool_Execute(t *testing.T) {
 					ItemType: itemtype,
 					Fields: []glpi.SearchOption{
 						{ID: 1, UID: itemtype + ".name", Field: "name", Name: "Name", DisplayName: "Name"},
-						{ID: 80, UID: itemtype + ".groups_id", Field: "groups_id", Name: "Group", DisplayName: "Group"},
+						{ID: 71, UID: itemtype + ".Group_Item.Group.completename", Field: "completename", Name: "Group", DisplayName: "Group", Table: "glpi_groups"},
 					},
 				}, nil
 			},

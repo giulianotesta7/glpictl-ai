@@ -19,8 +19,8 @@ func mockSearchOptionsForCompliance() func(ctx context.Context, itemtype string)
 				Fields: []glpi.SearchOption{
 					{ID: 1, UID: "SoftwareLicense.id", Field: "id", Name: "ID", DisplayName: "ID"},
 					{ID: 2, UID: "SoftwareLicense.name", Field: "name", Name: "Name", DisplayName: "Name"},
-					{ID: 5, UID: "Software.name", Field: "name", Name: "Software", DisplayName: "Software"},
-					{ID: 31, UID: "Software.software", Field: "software", Name: "Software", DisplayName: "Software ID"},
+					{ID: 5, UID: "SoftwareLicense.Software.name", Field: "name", Name: "Software", DisplayName: "Software"},
+					{ID: 31, UID: "SoftwareLicense.Software.software", Field: "software", Name: "Software", DisplayName: "Software ID"},
 					{ID: 34, UID: "SoftwareLicense.number", Field: "number", Name: "Number", DisplayName: "Number of licenses"},
 					{ID: 80, UID: "SoftwareLicense.entities_id", Field: "entities_id", Name: "Entity", DisplayName: "Entity"},
 				},
@@ -30,8 +30,8 @@ func mockSearchOptionsForCompliance() func(ctx context.Context, itemtype string)
 				ItemType: itemtype,
 				Fields: []glpi.SearchOption{
 					{ID: 1, UID: "Item_SoftwareVersion.id", Field: "id", Name: "ID", DisplayName: "ID"},
-					{ID: 5, UID: "Software.id", Field: "id", Name: "Software", DisplayName: "Software ID"},
-					{ID: 6, UID: "Software.entities_id", Field: "entities_id", Name: "Entity", DisplayName: "Entity"},
+					{ID: 5, UID: "Item_SoftwareVersion.Software.name", Field: "name", Name: "Software", DisplayName: "Software ID"},
+					{ID: 6, UID: "Item_SoftwareVersion.Software.entities_id", Field: "entities_id", Name: "Entity", DisplayName: "Entity"},
 				},
 			}, nil
 		default:

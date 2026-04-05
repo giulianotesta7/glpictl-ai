@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -18,9 +19,9 @@ const (
 	StatusOverInstalled ComplianceStatus = "over-installed"
 	// StatusUnlicensed means purchased = 0, installed > 0.
 	StatusUnlicensed ComplianceStatus = "unlicensed"
-	// StatusUnused means purchased > 0, installed = 0.
+	// StatusUnused means purchased > 0, installed = 0 — licenses exist but are not assigned.
 	StatusUnused ComplianceStatus = "unused"
-	// StatusUnderUtilized means purchased > installed, installed = 0.
+	// StatusUnderUtilized means purchased > installed > 0 — some licenses are assigned but not all.
 	StatusUnderUtilized ComplianceStatus = "under-utilized"
 )
 
@@ -114,37 +115,49 @@ func (l *LicenseComplianceTool) Execute(ctx context.Context, softwareID int, ent
 	var firstErr error
 	var errMu sync.Mutex
 
-	// Build base criteria
+	// Build base criteria with dynamically resolved field IDs
 	var licenseCriteria []SearchCriterion
 	var installCriteria []SearchCriterion
 
-	// Always filter by software_id for licenses
-	// Field UID "Software.software" maps to field ID 31 in SoftwareLicense
+	// Resolve software reference field for SoftwareLicense
+	softwareFieldLicense, err := l.resolveSoftwareFieldID(ctx, "SoftwareLicense")
+	if err != nil {
+		return nil, fmt.Errorf("license compliance [resolve software field for licenses]: %w", err)
+	}
 	licenseCriteria = append(licenseCriteria, SearchCriterion{
-		FieldName:  "Software.software",
+		Field:      softwareFieldLicense,
 		SearchType: "equals",
 		Value:      strconv.Itoa(softwareID),
 	})
 
-	// Always filter by software_id for installations
-	// Field UID "Software.id" maps to field ID 5 in Item_SoftwareVersion
+	// Resolve software reference field for Item_SoftwareVersion
+	softwareFieldInstall, err := l.resolveSoftwareFieldID(ctx, "Item_SoftwareVersion")
+	if err != nil {
+		return nil, fmt.Errorf("license compliance [resolve software field for installations]: %w", err)
+	}
 	installCriteria = append(installCriteria, SearchCriterion{
-		FieldName:  "Software.id",
+		Field:      softwareFieldInstall,
 		SearchType: "equals",
 		Value:      strconv.Itoa(softwareID),
 	})
 
 	if entityID > 0 {
-		licenseCriteria = append(licenseCriteria, SearchCriterion{
-			FieldName:  "SoftwareLicense.entities_id",
-			SearchType: "equals",
-			Value:      strconv.Itoa(entityID),
-		})
-		installCriteria = append(installCriteria, SearchCriterion{
-			FieldName:  "Software.entities_id",
-			SearchType: "equals",
-			Value:      strconv.Itoa(entityID),
-		})
+		entitiesFieldLicense, err := l.resolveEntityFieldID(ctx, "SoftwareLicense")
+		if err == nil {
+			licenseCriteria = append(licenseCriteria, SearchCriterion{
+				Field:      entitiesFieldLicense,
+				SearchType: "equals",
+				Value:      strconv.Itoa(entityID),
+			})
+		}
+		entitiesFieldInstall, err := l.resolveEntityFieldID(ctx, "Software")
+		if err == nil {
+			installCriteria = append(installCriteria, SearchCriterion{
+				Field:      entitiesFieldInstall,
+				SearchType: "equals",
+				Value:      strconv.Itoa(entityID),
+			})
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -310,6 +323,63 @@ func (l *LicenseComplianceTool) Execute(ctx context.Context, softwareID int, ent
 	}
 
 	return report, nil
+}
+
+// resolveSoftwareFieldID finds the numeric field ID for the software reference
+// in the given itemtype by inspecting search options.
+func (l *LicenseComplianceTool) resolveSoftwareFieldID(ctx context.Context, itemtype string) (int, error) {
+	searchOptions, err := l.client.GetSearchOptions(ctx, itemtype)
+	if err != nil {
+		return 0, fmt.Errorf("get search options for %s: %w", itemtype, err)
+	}
+
+	// Look for a field whose UID starts with the itemtype and references Software
+	// e.g., "SoftwareLicense.Software.name" — the itemtype prefix ensures we get the
+	// reference field, not the software's own name field.
+	prefix := itemtype + ".Software"
+	for _, opt := range searchOptions.Fields {
+		if strings.HasPrefix(opt.UID, prefix) {
+			return opt.ID, nil
+		}
+	}
+
+	// Fallback: look for any field with table containing "software" and field "name"
+	// but exclude the main software table (we want the reference, not the software's own fields)
+	for _, opt := range searchOptions.Fields {
+		if strings.Contains(strings.ToLower(opt.Table), "software") &&
+			strings.EqualFold(opt.Field, "name") &&
+			!strings.EqualFold(opt.Table, "glpi_software") {
+			return opt.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no software reference field found for itemtype %q", itemtype)
+}
+
+// resolveEntityFieldID finds the numeric field ID for the entity field
+// in the given itemtype by inspecting search options.
+func (l *LicenseComplianceTool) resolveEntityFieldID(ctx context.Context, itemtype string) (int, error) {
+	searchOptions, err := l.client.GetSearchOptions(ctx, itemtype)
+	if err != nil {
+		return 0, fmt.Errorf("get search options for %s: %w", itemtype, err)
+	}
+
+	// Look for entities_id field directly on the main table
+	mainTable := "glpi_" + strings.ToLower(itemtype)
+	for _, opt := range searchOptions.Fields {
+		if strings.EqualFold(opt.Table, mainTable) && strings.EqualFold(opt.Field, "entities_id") {
+			return opt.ID, nil
+		}
+	}
+
+	// Fallback: look for Entity UID pattern
+	for _, opt := range searchOptions.Fields {
+		if strings.Contains(opt.UID, ".Entity.") {
+			return opt.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no entities_id field found for itemtype %q", itemtype)
 }
 
 // computeStatus determines the compliance status based on purchased and installed counts.

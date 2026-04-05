@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/giulianotesta7/glpictl-ai/internal/glpi"
@@ -145,22 +146,12 @@ func (s *SearchTool) Execute(ctx context.Context, itemtype string, criteria []Se
 			for _, item := range dataArray {
 				if itemMap, ok := item.(map[string]interface{}); ok {
 					searchData := SearchData{Data: itemMap}
-					// Extract ID
+					// Extract ID - GLPI may return it as number or string
 					if idVal, ok := itemMap["id"]; ok {
-						switch v := idVal.(type) {
-						case float64:
-							searchData.ID = int(v)
-						case int:
-							searchData.ID = v
-						}
+						searchData.ID = extractID(idVal)
 					} else if idVal, ok := itemMap["2"]; ok {
 						// GLPI returns ID as field "2"
-						switch v := idVal.(type) {
-						case float64:
-							searchData.ID = int(v)
-						case int:
-							searchData.ID = v
-						}
+						searchData.ID = extractID(idVal)
 					}
 					searchResult.Data = append(searchResult.Data, searchData)
 				}
@@ -264,6 +255,23 @@ func newAmbiguousFieldNameError(fieldName string, ids []int) error {
 	}
 
 	return fmt.Errorf("field_name %q is ambiguous (matched ids: %s)", fieldName, strings.Join(values, ","))
+}
+
+func extractID(v interface{}) int {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return int(val)
+	case int:
+		return val
+	case string:
+		n, _ := strconv.Atoi(val)
+		return n
+	default:
+		return 0
+	}
 }
 
 // Ensure SearchTool implements the Tool interface
