@@ -169,23 +169,6 @@ function Install-Binary {
     return $destFile
 }
 
-function Run-Configure {
-    param([string]$BinaryPath)
-
-    Write-Info "Running configuration..."
-    Write-Host ""
-    & $BinaryPath configure
-}
-
-function Run-Setup-MCP {
-    param([string]$BinaryPath)
-
-    Write-Host ""
-    Write-Info "Setting up MCP clients..."
-    Write-Host ""
-    & $BinaryPath setup-mcp
-}
-
 # Main
 Write-Host "========================================="
 Write-Host "  glpictl-ai Installer (Windows)"
