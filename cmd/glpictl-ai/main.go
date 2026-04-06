@@ -248,6 +248,44 @@ func main() {
 	)
 	s.AddTool(networkTopologyTool, createNetworkTopologyHandler(client))
 
+	// Register glpi_dashboard tool
+	dashboardTool := mcp.NewTool("glpi_dashboard",
+		mcp.WithDescription("Return a consolidated dashboard with inventory counts, expiring items, and ticket counts"),
+	)
+	s.AddTool(dashboardTool, createDashboardHandler(client))
+
+	// Register glpi_bulk_create tool
+	bulkCreateTool := mcp.NewTool("glpi_bulk_create",
+		mcp.WithDescription("Create multiple GLPI items at once; each item can have a different itemtype"),
+		mcp.WithArray("items", mcp.Required(), mcp.Description("Items to create; each must have itemtype and data"), mcp.Items(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"itemtype": map[string]any{"type": "string", "description": "GLPI item type"},
+				"data":     map[string]any{"type": "object", "description": "Item data to create"},
+			},
+		})),
+	)
+	s.AddTool(bulkCreateTool, createBulkCreateHandler(client))
+
+	// Register glpi_export tool
+	exportTool := mcp.NewTool("glpi_export",
+		mcp.WithDescription("Export GLPI items to CSV format with optional search criteria"),
+		mcp.WithString("itemtype", mcp.Required(), mcp.Description("GLPI item type (e.g., Computer, Printer)")),
+		mcp.WithArray("criteria", mcp.Description("Search criteria array"), mcp.Items(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"field":      map[string]any{"type": "number", "description": "Field ID to search on"},
+				"field_name": map[string]any{"type": "string", "description": "Field name or uid to translate to GLPI field ID"},
+				"searchtype": map[string]any{"type": "string", "description": "Search type (contains, equals, etc.)"},
+				"value":      map[string]any{"type": "string", "description": "Search value"},
+				"link":       map[string]any{"type": "string", "description": "Link operator (AND, OR)"},
+			},
+		})),
+		mcp.WithArray("fields", mcp.Description("Fields to export (default: id, name)"), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithNumber("limit", mcp.Description("Max items to export (default: 1000)")),
+	)
+	s.AddTool(exportTool, createExportHandler(client))
+
 	// Set up signal handling BEFORE launching the goroutine to avoid race conditions.
 	// SIGTERM does not exist on Windows, so conditionally include it.
 	sigChan := make(chan os.Signal, 1)
@@ -1069,4 +1107,147 @@ func createNetworkTopologyHandler(client *glpi.Client) server.ToolHandlerFunc {
 
 		return mcp.NewToolResultStructured(result, tools.BuildTopologyText(result)), nil
 	}
+}
+
+// createDashboardHandler creates the MCP tool handler for the glpi_dashboard command.
+func createDashboardHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		tool, err := tools.NewDashboardTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create dashboard tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx)
+		if err != nil {
+			wrappedErr := fmt.Errorf("dashboard: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Dashboard\nInventory total: %d\nExpiring items: %d\nTickets: %d",
+			result.InventoryTotal, result.ExpiringItems, result.TicketsCount)), nil
+	}
+}
+
+// createBulkCreateHandler creates the MCP tool handler for the glpi_bulk_create command.
+func createBulkCreateHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		rawArgs := request.GetRawArguments()
+		argsMap, ok := rawArgs.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("invalid arguments format"), nil
+		}
+
+		itemsVal, ok := argsMap["items"].([]interface{})
+		if !ok || len(itemsVal) == 0 {
+			return mcp.NewToolResultError("items is required and must be a non-empty array"), nil
+		}
+
+		var items []tools.BulkCreateItem
+		for _, rawItem := range itemsVal {
+			itemMap, ok := rawItem.(map[string]interface{})
+			if !ok {
+				return mcp.NewToolResultError("each item must be an object"), nil
+			}
+
+			item := tools.BulkCreateItem{}
+			if it, ok := itemMap["itemtype"].(string); ok {
+				item.ItemType = it
+			}
+			if data, ok := itemMap["data"].(map[string]interface{}); ok {
+				item.Data = data
+			}
+			items = append(items, item)
+		}
+
+		tool, err := tools.NewBulkCreateTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create bulk create tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, items)
+		if err != nil {
+			wrappedErr := fmt.Errorf("bulk create: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Bulk create completed.\nCreated: %d\nFailed: %d\nTotal: %d",
+			result.Created, result.Failed, result.Total)), nil
+	}
+}
+
+// createExportHandler creates the MCP tool handler for the glpi_export command.
+func createExportHandler(client *glpi.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		itemType, err := request.RequireString("itemtype")
+		if err != nil {
+			return mcp.NewToolResultError("itemtype is required and must be a string"), nil
+		}
+
+		// Extract optional fields
+		var fields []string
+		if fieldsVal := request.GetStringSlice("fields", nil); fieldsVal != nil {
+			fields = fieldsVal
+		}
+
+		// Extract limit
+		limit := request.GetInt("limit", 1000)
+
+		// Get raw arguments to extract criteria
+		rawArgs := request.GetRawArguments()
+		argsMap, ok := rawArgs.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("invalid arguments format"), nil
+		}
+
+		var criteria []tools.SearchCriterion
+		if criteriaVal, ok := argsMap["criteria"].([]interface{}); ok {
+			for _, c := range criteriaVal {
+				if cmap, ok := c.(map[string]interface{}); ok {
+					criterion := tools.SearchCriterion{}
+					if f, ok := cmap["field"].(float64); ok {
+						criterion.Field = int(f)
+					}
+					if st, ok := cmap["searchtype"].(string); ok {
+						criterion.SearchType = st
+					}
+					if fieldName, ok := cmap["field_name"].(string); ok {
+						criterion.FieldName = fieldName
+					}
+					if v, ok := cmap["value"].(string); ok {
+						criterion.Value = v
+					}
+					if l, ok := cmap["link"].(string); ok {
+						criterion.Link = l
+					}
+					criteria = append(criteria, criterion)
+				}
+			}
+		}
+
+		tool, err := tools.NewExportTool(client)
+		if err != nil {
+			wrappedErr := fmt.Errorf("create export tool: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		result, err := tool.Execute(ctx, itemType, criteria, fields, limit)
+		if err != nil {
+			wrappedErr := fmt.Errorf("export: %w", err)
+			return mcp.NewToolResultError(wrappedErr.Error()), nil
+		}
+
+		// Return as structured result with CSV preview
+		return mcp.NewToolResultStructured(result, fmt.Sprintf("Export completed.\nItemtype: %s\nTotal found: %d\nExported: %d\nCSV preview: %s",
+			result.ItemType, result.TotalFound, result.Exported, truncateCSV(result.CSV, 500))), nil
+	}
+}
+
+// truncateCSV truncates CSV content for display.
+func truncateCSV(csv string, maxLen int) string {
+	if len(csv) <= maxLen {
+		return csv
+	}
+	return csv[:maxLen] + "..."
 }
