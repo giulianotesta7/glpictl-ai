@@ -51,3 +51,45 @@ jobs:
 
       - name: Build
         run: go build -v ./...
+
+  test-install-ubuntu:
+    name: Test Install (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Run install script
+        run: |
+          chmod +x install.sh
+          bash install.sh --dir /tmp/glpictl-test
+
+      - name: Verify binary
+        run: |
+          /tmp/glpictl-test/glpictl-ai version
+
+      - name: Test config command
+        run: |
+          /tmp/glpictl-test/glpictl-ai config --help
+
+  test-install-windows:
+    name: Test Install (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Run install script
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File install.ps1
+
+      - name: Verify binary
+        shell: pwsh
+        run: |
+          & "$env:USERPROFILE\.local\bin\glpictl-ai.exe" version
+
+      - name: Test config command
+        shell: pwsh
+        run: |
+          & "$env:USERPROFILE\.local\bin\glpictl-ai.exe" config --help
